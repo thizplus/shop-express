@@ -1,0 +1,54 @@
+import { Request, Response } from 'express';
+import StoreConfig from '../../models/configStore';
+
+export const getPriceLiffId = async (req: Request, res: Response) => {
+  try {
+    const { priceId } = req.params;
+
+    const config = await StoreConfig.findOne();
+    if (!config) {
+      return res.status(404).json({ message: 'Config not found' });
+    }
+
+    const price = config.saleModel.listPrice.find(p => p.id === priceId);
+    if (!price) {
+      return res.status(404).json({ message: 'Price not found' });
+    }
+
+    res.json({ liffId: price.LIFF_ID || null });
+  } catch (error) {
+    console.error('Error fetching LIFF ID:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const updatePriceLiffId = async (req: Request, res: Response) => {
+  try {
+    const { priceId, liffId } = req.body;
+
+    if (!priceId || !liffId) {
+      return res.status(400).json({ message: 'Missing required parameters' });
+    }
+
+    const config = await StoreConfig.findOne();
+    if (!config) {
+      return res.status(404).json({ message: 'Config not found' });
+    }
+
+    const priceIndex = config.saleModel.listPrice.findIndex(p => p.id === priceId);
+    if (priceIndex === -1) {
+      return res.status(404).json({ message: 'Price not found' });
+    }
+
+    config.saleModel.listPrice[priceIndex].LIFF_ID = liffId;
+    await config.save();
+
+    res.json({ 
+      message: 'LIFF ID updated successfully',
+      liffId 
+    });
+  } catch (error) {
+    console.error('Error updating LIFF ID:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
