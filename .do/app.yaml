@@ -1,0 +1,29 @@
+name: pim-ecom-express
+services:
+  - name: api
+    dockerfile_path: Dockerfile
+    source_dir: /
+    git:
+      branch: main
+      repo_clone_url: https://github.com/git-wppluz/ecom-express-docker.git  # เปลี่ยนเป็น URL repository ของคุณ
+    health_check:
+      http_path: /
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 8000
+    envs:
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+      - key: MONGODB_URI
+        scope: RUN_TIME
+        value: "mongodb+srv://webmaster:kJVPGIXdrbEQKcNb@ecm.frvsl.mongodb.net/ecm?retryWrites=true&w=majority&appName=ecm&connectTimeoutMS=30000&socketTimeoutMS=30000&maxIdleTimeMS=60000"
+      - key: DB_NAME
+        scope: RUN_TIME
+        value: "ecm"
+      - key: JWT_SECRET
+        scope: RUN_TIME
+        value: "kJVPGIXdrbEQKcNb"
+      - key: FRONTEND_URL
+        scope: RUN_TIME
+        value: ${NEXT_APP_URL}  # URL ของ frontend จาก App Platform
