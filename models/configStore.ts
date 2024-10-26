@@ -20,6 +20,7 @@ export interface ISlipOK {
   API_URL: string;
   API_KEY: string;
   ENABLED: boolean;
+  qr_image?: string; 
 }
 
 export interface IListPrice {
@@ -115,6 +116,7 @@ const slipOKSchema = new Schema<ISlipOK>({
   API_URL: { type: String, default: '' },
   API_KEY: { type: String, default: '' },
   ENABLED: { type: Boolean, default: false },
+  qr_image: { type: String } // เพิ่มฟิลด์
 }, { _id: false });
 
 const configSchema = new Schema<IConfigDocument>({

@@ -126,7 +126,7 @@ async function saveProductsToMongoDB(products: ZortoutProduct[], priceTemplate: 
         // Ensure price document exists with all price levels
         await ensurePriceDocument(product, priceTemplate);
 
-        // Get existing product to preserve active status
+        // Get existing product to check current status
         const existingProduct = await Product.findOne({ id: product.id });
         let firebaseImageUrl: string | null = null;
 
@@ -145,12 +145,13 @@ async function saveProductsToMongoDB(products: ZortoutProduct[], priceTemplate: 
             imagepath: firebaseImageUrl || product.imagepath,
             categoryid: product.categoryid,
             category: product.category,
+            // กำหนด active status ตามเงื่อนไข availablestock
+            active: product.availablestock > 0 ? (existingProduct?.active ?? true) : false,
+            // ถ้าเป็นสินค้าใหม่และ availablestock = 0 จะถูกตั้งเป็น false
+            // ถ้าเป็นสินค้าเก่าและ availablestock = 0 จะถูกตั้งเป็น false
+            // ถ้า availablestock > 0 จะใช้ค่า active เดิม (ถ้ามี) หรือ true (ถ้าเป็นสินค้าใหม่)
+            updatedAt: new Date()
         };
-
-        // Only set active status for new products
-        if (!existingProduct) {
-            updateData.active = product.active;
-        }
 
         return {
             updateOne: {

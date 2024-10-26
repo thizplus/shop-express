@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Product, { IProduct } from '../../models/productModel';
 import { IListPrice } from '../../models/priceModel';
+import { PipelineStage } from 'mongoose';
 
 export interface ProductWithPrice extends Omit<IProduct, '_id'> {
   _id: string;
@@ -13,7 +14,7 @@ export const getProducts = async (req: Request, res: Response) => {
     const limit: number = parseInt(req.query.limit as string) || 20;
     const skip: number = (page - 1) * limit;
 
-    const aggregationPipeline = [
+    const aggregationPipeline: PipelineStage[] = [
       // Stage 1: Join with price data
       {
         $lookup: {
@@ -23,11 +24,11 @@ export const getProducts = async (req: Request, res: Response) => {
           as: 'priceData'
         }
       },
-      // Stage 2: Unwind price data (optional for array results)
+      // Stage 2: Unwind price data
       {
         $unwind: {
           path: '$priceData',
-          preserveNullAndEmptyArrays: true // keep products without prices
+          preserveNullAndEmptyArrays: true
         }
       },
       // Stage 3: Project the fields we want
@@ -54,10 +55,17 @@ export const getProducts = async (req: Request, res: Response) => {
           }
         }
       },
-      // Stage 4: Facet for pagination
+      // Stage 4: Sort by active and sku
+      { 
+        $sort: {
+          active: -1,
+          sku: 1
+        }
+      } as PipelineStage.Sort,
+      // Stage 5: Facet for pagination
       {
         $facet: {
-          metadata: [{ $count: 'totalItems' }],
+          metadata: [{ $count: "totalItems" }],
           items: [
             { $skip: skip },
             { $limit: limit }

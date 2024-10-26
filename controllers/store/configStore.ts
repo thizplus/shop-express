@@ -1,18 +1,21 @@
 import { Request, Response } from 'express';
 import StoreConfig, { IConfig } from '../../models/configStore';
+import uploadImageQRToFirebase from '../../functions/uploadImageQRToFirebase';
+import multer from 'multer';
 
-function deepMerge(target: any, source: any) {
-  for (const key in source) {
-    if (source.hasOwnProperty(key)) {
-      if (source[key] instanceof Object && key in target) {
-        deepMerge(target[key], source[key]);
-      } else {
-        target[key] = source[key];
-      }
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only images are allowed.'));
     }
   }
-  return target;
-}
+});
 
 export const getStoreConfig = async (req: Request, res: Response) => {
   try {
@@ -23,40 +26,77 @@ export const getStoreConfig = async (req: Request, res: Response) => {
   }
 };
 
+
+
 export const updateStoreConfig = async (req: Request, res: Response) => {
-  try {
-    const updateData: Partial<IConfig> = req.body;
-    let config = await StoreConfig.findOneOrCreate();
-    
-    // Deep merge function (as before)
-    function deepMerge(target: any, source: any) {
-      for (const key in source) {
-        if (source.hasOwnProperty(key)) {
-          if (source[key] instanceof Object && key in target) {
-            deepMerge(target[key], source[key]);
-          } else if (source[key] !== undefined && source[key] !== null) {
-            // Only update if the value is not undefined or null
-            target[key] = source[key];
-          }
-        }
+  upload.single('qr_image')(req, res, async function (err) {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: 'File size exceeds the limit of 5MB' });
       }
-      return target;
+      return res.status(400).json({ message: 'Error uploading file', error: err.message });
+    } else if (err) {
+      return res.status(400).json({ message: 'Unknown error', error: err instanceof Error ? err.message : 'An unknown error occurred' });
     }
 
-    // Deep merge the existing config with the update data
-    const updatedConfig = deepMerge(config.toObject(), updateData);
+    try {
+      let updateData: Partial<IConfig>;
+      
+      if (req.file) {
+        updateData = JSON.parse(req.body.config);
+        
+        // ใช้ function เดียวกับ uploadSlip
+        const imageUrl = await uploadImageQRToFirebase(req.file, 'qr-codes');
+        
+        if (imageUrl) {
+          if (!updateData.slipOK) {
+            updateData.slipOK = {
+              API_URL: '',
+              API_KEY: '',
+              ENABLED: false,
+              qr_image: imageUrl
+            };
+          } else {
+            updateData.slipOK = {
+              ...updateData.slipOK,
+              qr_image: imageUrl
+            };
+          }
+        }
+      } else {
+        updateData = req.body;
+      }
 
-    // Assign the merged config back to the document
-    Object.assign(config, updatedConfig);
+      let config = await StoreConfig.findOneOrCreate();
 
-    await config.save();
-    res.status(200).json(config);
-  } catch (error) {
-    console.error('Error updating store configuration:', error);
-    res.status(500).json({ message: 'Error updating store configuration', error: error instanceof Error ? error.message : 'Unknown error' });
-  }
+      function deepMerge(target: any, source: any) {
+        for (const key in source) {
+          if (source.hasOwnProperty(key)) {
+            if (source[key] instanceof Object && key in target) {
+              deepMerge(target[key], source[key]);
+            } else if (source[key] !== undefined && source[key] !== null) {
+              target[key] = source[key];
+            }
+          }
+        }
+        return target;
+      }
+
+      const updatedConfig = deepMerge(config.toObject(), updateData);
+      Object.assign(config, updatedConfig);
+
+      await config.save();
+      res.status(200).json(config);
+
+    } catch (error) {
+      console.error('Error updating store configuration:', error);
+      res.status(500).json({ 
+        message: 'Error updating store configuration', 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+    }
+  });
 };
-
 
 
 export const resetStoreConfig = async (req: Request, res: Response) => {
