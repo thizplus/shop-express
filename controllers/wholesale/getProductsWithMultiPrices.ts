@@ -71,8 +71,16 @@ export const setupMultiPriceProductSocket = (io: SocketIOServer) => {
         }
 
         const products = await Price.aggregate<ProductWithPrices>([
+          // Stage 1: Unwind listPrice array
           { $unwind: "$listPrice" },
-          { $match: { "listPrice.priceId": { $in: clientPriceIds } } },
+          // Stage 2: Match prices that belong to client's price IDs
+          { 
+            $match: { 
+              "listPrice.priceId": { $in: clientPriceIds },
+              "listPrice.price": { $gt: 0 } // เพิ่มเงื่อนไขราคาต้องมากกว่า 0
+            }
+          },
+          // Stage 3: Group back by SKU
           { 
             $group: {
               _id: "$sku",
@@ -84,9 +92,20 @@ export const setupMultiPriceProductSocket = (io: SocketIOServer) => {
                   price: "$listPrice.price",
                   updatedAt: "$listPrice.updatedAt"
                 }
+              },
+              // เพิ่มการนับจำนวนราคาที่มีค่ามากกว่า 0
+              validPriceCount: { 
+                $sum: 1
               }
             }
           },
+          // Stage 4: ตรวจสอบว่ามีราคาครบทุก price level ที่ client ต้องการ
+          {
+            $match: {
+              validPriceCount: { $eq: clientPriceIds.length }
+            }
+          },
+          // Stage 5: Project final fields
           {
             $project: {
               _id: 0,
