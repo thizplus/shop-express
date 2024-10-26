@@ -5,6 +5,7 @@ import http from 'http';
 import dotenv from 'dotenv';
 import { Server } from 'socket.io';
 
+// Existing route imports
 import userRoutes from './routes/userRoutes';
 import productRoutes from './routes/productRoutes';
 import categoryRoutes from './routes/categoryRoutes';
@@ -14,16 +15,18 @@ import zortoutRoutes from './routes/zortoutRoutes';
 import wholesaleRoutes from './routes/wholesaleRoutes';
 import storeRoutes from './routes/storeRoutes';
 import lineLoginRoutes from './routes/lineLoginRoutes';
-
 import shippingRoutes from './routes/shippingRoutes';
-
 import orderRoutes from './routes/orderRoutes';
+import slipOKRoutes from './routes/slipOKRoutes';
+import clientRoutes from './routes/clientRoutes';
 
-import slipOKRoutes from './routes/slipOKRoutes'
-
+// Socket controller imports
 import { setupWholesaleProductSocket } from './controllers/wholesale/wholesaleProductController';
 import { setupMultiPriceProductSocket } from './controllers/wholesale/getProductsWithMultiPrices';
-import clientRoutes from './routes/clientRoutes';
+
+// Order Scheduler imports
+import { OrderScheduler } from './service/orderScheduler';
+import { schedulerLogger } from './service/logger';
 
 dotenv.config();
 
@@ -43,43 +46,73 @@ app.use(express.json());
 // Set Socket.IO instance on app
 app.set('socketio', io);
 
+// Initialize Order Scheduler
+try {
+  OrderScheduler.getInstance();
+  schedulerLogger.info('Order expiration scheduler initialized successfully');
+} catch (error) {
+  schedulerLogger.error('Failed to initialize order scheduler', { error });
+  // ไม่ exit process เพื่อให้แอพยังทำงานต่อได้แม้ scheduler จะมีปัญหา
+  console.error('Order scheduler initialization failed, but application continues');
+}
+
 // Database connection
 mongoose.connect(process.env.MONGODB_URI as string)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('Could not connect to MongoDB', err));
+  .then(() => {
+    console.log('Connected to MongoDB');
+    schedulerLogger.info('MongoDB connection established');
+  })
+  .catch(err => {
+    console.error('Could not connect to MongoDB', err);
+    schedulerLogger.error('MongoDB connection failed', { error: err });
+  });
 
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/category', categoryRoutes);
-
 app.use('/api/store/prices', priceRoutes);
 app.use('/api/store/prices/multiple', multiplePriceRoutes);
-
 app.use('/api/store', storeRoutes);
-
 app.use('/api/zort', zortoutRoutes);
-
 app.use('/api/wholesale', wholesaleRoutes);
-
 app.use('/api/shipping', shippingRoutes);
-
 app.use('/api/orders', orderRoutes);
-
 app.use('/api/line', lineLoginRoutes);
-
 app.use('/api/slipOK', slipOKRoutes);
-
 app.use('/api/clients', clientRoutes);
 
 // Setup Socket.IO for wholesale
 setupWholesaleProductSocket(io);
 setupMultiPriceProductSocket(io);
 
+// Graceful shutdown
+const gracefulShutdown = () => {
+  schedulerLogger.info('Application shutdown initiated');
+  const scheduler = OrderScheduler.getInstance();
+  scheduler.stopScheduler();
+  
+  // Close MongoDB connection
+  mongoose.connection.close()
+    .then(() => {
+      schedulerLogger.info('MongoDB connection closed');
+      process.exit(0);
+    })
+    .catch(err => {
+      schedulerLogger.error('Error closing MongoDB connection', { error: err });
+      process.exit(1);
+    });
+};
+
+// Shutdown handlers
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 const PORT = process.env.PORT || 8000;
 
 server.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+  schedulerLogger.info(`Server started on port ${PORT}`);
 });
 
 export default app;
