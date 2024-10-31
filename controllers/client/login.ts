@@ -5,9 +5,9 @@ import StoreConfig from '../../models/configStore';
 import Client, { IClient } from '../../models/clientModel';
 
 export const verifyProfile = async (req: Request, res: Response) => {
-  console.log('Verifying profile');
-  console.log('Headers:', req.headers);
-  console.log('Body:', req.body);
+  //console.log('Verifying profile');
+  //console.log('Headers:', req.headers);
+  //console.log('Body:', req.body);
 
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -27,8 +27,8 @@ export const verifyProfile = async (req: Request, res: Response) => {
         }
       });
       
-      console.log('LIFF token verified:', verifyResponse.data);
-      console.log('Profile data received:', profile);
+     // console.log('LIFF token verified:', verifyResponse.data);
+    //  console.log('Profile data received:', profile);
 
       // Token is valid, find or create user
       let client = await Client.findOne({ userId: profile.userId });
