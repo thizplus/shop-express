@@ -4,21 +4,18 @@ import Order from '../../models/orderModel';
 
 export const getPendingOrders = async (req: Request, res: Response) => {
   try {
-    const { userId, page = '1', limit = '10' } = req.query;
+    const { userId, typeId, page = '1', limit = '10' } = req.query;
     const currentPage = parseInt(page as string);
     const limitNumber = parseInt(limit as string);
     const skip = (currentPage - 1) * limitNumber;
 
     // สร้าง query object
-    const queryObject: any = {
+    const queryObject = {
       'payment.status': 'pending',
-      expire: { $gt: new Date() } // เช็คว่ายังไม่หมดเวลา
+      expire: { $gt: new Date() }, // เช็คว่ายังไม่หมดเวลา
+      userId,
+      typeId
     };
-
-    // ถ้ามี userId ให้เพิ่มเงื่อนไขการค้นหา
-    if (userId) {
-      queryObject.userId = userId;
-    }
 
     const items = await Order.find(queryObject)
       .sort({ createdAt: -1 }) // เรียงจากใหม่ไปเก่า
@@ -43,17 +40,18 @@ export const getPendingOrders = async (req: Request, res: Response) => {
   }
 };
 
-// ฟังก์ชันสำหรับดึง pending order ล่าสุดของ user
+// ฟังก์ชันสำหรับดึง pending order ล่าสุดของ user ตาม typeId
 export const getLatestPendingOrder = async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const { userId, typeId } = req.params;
 
-    if (!userId) {
-      return res.status(400).json({ message: 'userId is required' });
+    if (!userId || !typeId) {
+      return res.status(400).json({ message: 'userId and typeId are required' });
     }
 
     const order = await Order.findOne({
       userId,
+      typeId,
       'payment.status': 'pending',
       expire: { $gt: new Date() }
     })
