@@ -10,15 +10,19 @@ export const getPendingOrders = async (req: Request, res: Response) => {
     const skip = (currentPage - 1) * limitNumber;
 
     // สร้าง query object
-    const queryObject = {
+    const queryObject: any = {
       'payment.status': 'pending',
-      expire: { $gt: new Date() }, // เช็คว่ายังไม่หมดเวลา
-      userId,
-      typeId
+      expire: { $gt: new Date() }
     };
 
+    // เพิ่ม filters ถ้ามีการส่งมา
+    if (userId) queryObject.userId = userId;
+    if (typeId) queryObject.typeId = typeId;
+
+    console.log('Query:', queryObject);
+
     const items = await Order.find(queryObject)
-      .sort({ createdAt: -1 }) // เรียงจากใหม่ไปเก่า
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNumber)
       .exec();
@@ -40,23 +44,30 @@ export const getPendingOrders = async (req: Request, res: Response) => {
   }
 };
 
-// ฟังก์ชันสำหรับดึง pending order ล่าสุดของ user ตาม typeId
 export const getLatestPendingOrder = async (req: Request, res: Response) => {
   try {
     const { userId, typeId } = req.params;
+    console.log('Getting latest pending order:', { userId, typeId });
 
     if (!userId || !typeId) {
+      console.log('Missing required params');
       return res.status(400).json({ message: 'userId and typeId are required' });
     }
 
-    const order = await Order.findOne({
+    const query = {
       userId,
       typeId,
       'payment.status': 'pending',
       expire: { $gt: new Date() }
-    })
-      .sort({ createdAt: -1 }) // เรียงจากใหม่ไปเก่า
+    };
+
+    console.log('Query:', query);
+
+    const order = await Order.findOne(query)
+      .sort({ createdAt: -1 })
       .exec();
+
+    console.log('Found order:', order ? 'Yes' : 'No');
 
     if (!order) {
       return res.json({ order: null });
@@ -64,7 +75,7 @@ export const getLatestPendingOrder = async (req: Request, res: Response) => {
 
     res.json({ order });
   } catch (error) {
-    console.error('Error fetching latest pending order:', error);
+    console.error('Error in getLatestPendingOrder:', error);
     res.status(500).json({ 
       message: 'Failed to fetch latest pending order',
       error: error instanceof Error ? error.message : 'Unknown error'

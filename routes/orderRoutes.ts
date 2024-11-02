@@ -24,8 +24,7 @@ router.get('/search', searchOrders);   // สำหรับค้นหา orde
 
 // สามารถเพิ่ม routes อื่นๆ ตามความต้องการ
 
-router.get('/pending', getPendingOrders);                    // Get all pending orders with filters
-router.get('/pending/latest/:userId', getLatestPendingOrder); // Get latest pending order for specific user
-
+router.get('/pending', getPendingOrders);  // สำหรับดึงรายการทั้งหมดโดยส่ง query params
+router.get('/pending/latest/:userId/:typeId', getLatestPendingOrder);  // แก้ route ให้รับ typeId ด้วย
 
 export default router;
