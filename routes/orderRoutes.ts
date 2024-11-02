@@ -1,6 +1,7 @@
 import express from 'express';
 import { createOrder, getOrderById, getOrders, updatePaymentStatus } from '../controllers/order/orderControler';
 import { getAdminOrders, searchOrders } from '../controllers/order/getOrders';
+import { getLatestPendingOrder, getPendingOrders } from '../controllers/order/getPendingOrders';
 
 const router = express.Router();
 
@@ -22,5 +23,9 @@ router.get('/admin', getAdminOrders);  // สำหรับดึงข้อ�
 router.get('/search', searchOrders);   // สำหรับค้นหา orders
 
 // สามารถเพิ่ม routes อื่นๆ ตามความต้องการ
+
+router.get('/pending', getPendingOrders);                    // Get all pending orders with filters
+router.get('/pending/latest/:userId', getLatestPendingOrder); // Get latest pending order for specific user
+
 
 export default router;
