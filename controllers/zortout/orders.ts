@@ -200,12 +200,7 @@ export const voidOrderToZortout = async (req: Request, res: Response) => {
 
 export const updatePaymentToZortout = async (req: Request, res: Response) => {
   try {
-    // เพิ่ม slipUrl ใน request body
-    const { orderId, paymentamount, paymentmethod, slipUrl } = req.body;
-
-    if (!slipUrl) {
-      return res.status(400).json({ message: 'Slip URL is required' });
-    }
+    const { orderId, paymentamount, paymentmethod } = req.body;
 
     const storeName = process.env.ZORTOUT_STORENAME;
     const apiKey = process.env.ZORTOUT_APIKEY;
@@ -275,19 +270,12 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
             $set: { 
               'payment.status': paidAmount + zortoutPaymentAmount >= totalAmount ? 'success' : 'pending',
               'payment.amount': order.payment.amount + parseFloat(paymentamount)
-            },
-            $push: { 
-              'payment.slip': {
-                url: slipUrl, // เพิ่ม url
-                amount: parseFloat(paymentamount),
-                uploadedAt: new Date() // เปลี่ยนจาก timestamp เป็น uploadedAt
-              }
             }
           }
         );
 
         res.status(200).json({
-          message: 'Payment updated successfully',
+          message: 'Payment updated successfully in Zortout',
           orderId: orderId,
           zortoutId: order.zortoutId,
           actualPaymentAmount: parseFloat(paymentamount),
