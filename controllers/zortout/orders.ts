@@ -263,13 +263,17 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
       console.log('Zortout Update Payment API response:', response.data);
 
       if (response.status === 200 && response.data.resCode === "200") {
+        // คำนวณยอดรวมจากสลิปทั้งหมด
+        const currentSlipTotal = order.payment.slip.reduce((sum, slip) => sum + slip.amount, 0);
+        const newTotal = currentSlipTotal + parseFloat(paymentamount);
+
         // อัพเดท payment ใน order
         await Order.findOneAndUpdate(
           { orderId: orderId },
           { 
             $set: { 
               'payment.status': paidAmount + zortoutPaymentAmount >= totalAmount ? 'success' : 'pending',
-              'payment.amount': order.payment.amount + parseFloat(paymentamount)
+              'payment.amount': newTotal // ใช้ยอดรวมที่คำนวณใหม่
             }
           }
         );
@@ -280,6 +284,7 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
           zortoutId: order.zortoutId,
           actualPaymentAmount: parseFloat(paymentamount),
           zortoutPaymentAmount: zortoutPaymentAmount,
+          totalPaid: newTotal,
           zortoutResponse: response.data
         });
       } else {
