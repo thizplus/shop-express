@@ -219,7 +219,7 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
     }
 
     try {
-      // เรียก API GetOrderDetail เพื่อดึงข้อมูล order จาก Zortout
+      // เช็คยอดคงเหลือใน Zortout
       const orderDetailsResponse = await axios.get(
         `https://open-api.zortout.com/v4/Order/GetOrderDetail?id=${order.zortoutId}`,
         {
@@ -236,15 +236,11 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
         throw new Error('Failed to get order details from Zortout');
       }
 
-      // ดึงข้อมูลยอดเงินจาก Zortout
-      const orderDetails = orderDetailsResponse.data;
-      const totalAmount = parseFloat(orderDetails.amount);
-      const paidAmount = parseFloat(orderDetails.paymentamount || 0);
+      // คำนวณยอดที่จะส่งไป Zortout
+      const totalAmount = parseFloat(orderDetailsResponse.data.amount);
+      const paidAmount = parseFloat(orderDetailsResponse.data.paymentamount || 0);
       const remainingAmount = totalAmount - paidAmount;
-
-      // คำนวณยอดเงินที่จะส่งไป Zortout
-      let zortoutPaymentAmount = remainingAmount >= parseFloat(paymentamount) ? 
-        parseFloat(paymentamount) : remainingAmount;
+      const zortoutPaymentAmount = Math.min(parseFloat(paymentamount), remainingAmount);
 
       // อัพเดทการชำระเงินใน Zortout
       const response = await axios.post(
@@ -263,44 +259,14 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
       console.log('Zortout Update Payment API response:', response.data);
 
       if (response.status === 200 && response.data.resCode === "200") {
-        // เพิ่มสลิปใหม่และคำนวณยอดรวม
-        await Order.findOneAndUpdate(
-          { orderId: orderId },
-          { 
-            $set: { 
-              'payment.status': paidAmount + zortoutPaymentAmount >= totalAmount ? 'success' : 'pending',
-            },
-            $push: { 
-              'payment.slip': {
-                amount: parseFloat(paymentamount),
-                uploadedAt: new Date()
-              }
-            }
-          }
-        );
-
-        // ดึงข้อมูล order อีกครั้งเพื่อคำนวณยอดรวมที่ถูกต้อง
-        const updatedOrder = await Order.findOne({ orderId: orderId });
-        const totalPaid = updatedOrder?.payment.slip.reduce((sum, slip) => sum + slip.amount, 0) || 0;
-
-        // อัพเดทยอดรวม
-        await Order.updateOne(
-          { orderId: orderId },
-          { 
-            $set: { 
-              'payment.amount': totalPaid
-            }
-          }
-        );
-
         res.status(200).json({
           message: 'Payment updated successfully in Zortout',
+          zortoutResponse: response.data,
           orderId: orderId,
           zortoutId: order.zortoutId,
           actualPaymentAmount: parseFloat(paymentamount),
           zortoutPaymentAmount: zortoutPaymentAmount,
-          totalPaid: totalPaid,
-          zortoutResponse: response.data
+          paymentMethod: paymentmethod
         });
       } else {
         throw new Error(`Zortout Update Payment API returned an unexpected response: ${JSON.stringify(response.data)}`);
