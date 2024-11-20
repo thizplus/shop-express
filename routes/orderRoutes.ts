@@ -2,6 +2,7 @@ import express from 'express';
 import { createOrder, getOrderById, getOrders, updatePaymentStatus } from '../controllers/order/orderControler';
 import { getAdminOrders, searchOrders } from '../controllers/order/getOrders';
 import { getLatestPendingOrder, getPendingOrders } from '../controllers/order/getPendingOrders';
+import { getOrderReport } from '../controllers/order/getOrderReport';
 
 const router = express.Router();
 
@@ -21,6 +22,8 @@ router.put('/:orderId/payment', updatePaymentStatus);
 // Routes ใหม่
 router.get('/admin', getAdminOrders);  // สำหรับดึงข้อมูลทั้งหมดแบบ pagination
 router.get('/search', searchOrders);   // สำหรับค้นหา orders
+
+router.get('/report', getOrderReport);  // สำหรับดึงข้อมูลทั้งหมดแบบ pagination
 
 // สามารถเพิ่ม routes อื่นๆ ตามความต้องการ
 

@@ -37,6 +37,8 @@ export interface IOrder extends Document {
     }>;
   };
   zortoutId?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const OrderSchema: Schema = new Schema({
