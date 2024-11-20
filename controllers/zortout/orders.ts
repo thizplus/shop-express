@@ -201,7 +201,7 @@ export const voidOrderToZortout = async (req: Request, res: Response) => {
 
 export const updatePaymentToZortout = async (req: Request, res: Response) => {
   try {
-    const { orderId, paymentamount, paymentmethod } = req.body;
+    const { orderId, paymentamount, paymentmethod, slipUrl } = req.body; // เพิ่ม slipUrl รับจาก frontend
 
     const storeName = process.env.ZORTOUT_STORENAME;
     const apiKey = process.env.ZORTOUT_APIKEY;
@@ -212,7 +212,7 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
       return res.status(500).json({ message: 'Zortout credentials are not properly configured' });
     }
 
-    // ค้นหา order จากฐานข้อมูลเพื่อดึง zortoutId
+    // ค้นหา order จากฐานข้อมูล
     const order = await Order.findOne({ orderId: orderId });
 
     if (!order || !order.zortoutId) {
@@ -220,9 +220,36 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
     }
 
     try {
-      // อัพเดทการชำระเงินใน Zortout โดยใช้ zortoutId
+      // เรียก API เพื่อดึงข้อมูล order จาก Zortout
+      const orderDetailsResponse = await axios.get(
+        `https://open-api.zortout.com/v4/Order/GetOrder?id=${order.zortoutId}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'storename': storeName,
+            'apikey': apiKey,
+            'apisecret': apiSecret
+          }
+        }
+      );
+
+      if (orderDetailsResponse.data.resCode !== "200") {
+        throw new Error(`Failed to get order details from Zortout: ${orderDetailsResponse.data.resDesc}`);
+      }
+
+      // ดึงข้อมูลยอดเงินจาก Zortout
+      const orderDetails = orderDetailsResponse.data.detail;
+      const totalAmount = parseFloat(orderDetails.total);
+      const paidAmount = parseFloat(orderDetails.paid || 0);
+      const remainingAmount = totalAmount - paidAmount;
+
+      // คำนวณยอดเงินที่จะส่งไป Zortout
+      let zortoutPaymentAmount = remainingAmount >= parseFloat(paymentamount) ? 
+        parseFloat(paymentamount) : remainingAmount;
+
+      // อัพเดทการชำระเงินใน Zortout
       const response = await axios.post(
-        `https://open-api.zortout.com/v4/Order/UpdateOrderPayment?id=${order.zortoutId}&paymentamount=${paymentamount}&paymentmethod=${paymentmethod}`,
+        `https://open-api.zortout.com/v4/Order/UpdateOrderPayment?id=${order.zortoutId}&paymentamount=${zortoutPaymentAmount}&paymentmethod=${paymentmethod}`,
         {},
         {
           headers: {
@@ -237,13 +264,31 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
       console.log('Zortout Update Payment API response:', response.data);
 
       if (response.status === 200 && response.data.resCode === "200") {
+        // อัพเดท payment ใน order
+        await Order.findOneAndUpdate(
+          { orderId: orderId },
+          { 
+            $set: { 
+              'payment.status': paidAmount + zortoutPaymentAmount >= totalAmount ? 'success' : 'pending', // แก้จาก completed เป็น success
+              'payment.amount': order.payment.amount + parseFloat(paymentamount)
+            },
+            $push: { 
+              'payment.slip': {
+                url: slipUrl,
+                amount: parseFloat(paymentamount),
+                uploadedAt: new Date()
+              }
+            }
+          }
+        );
+
         res.status(200).json({
-          message: 'Payment updated successfully in Zortout',
-          zortoutResponse: response.data,
+          message: 'Payment updated successfully',
           orderId: orderId,
           zortoutId: order.zortoutId,
-          paymentAmount: paymentamount,
-          paymentMethod: paymentmethod
+          actualPaymentAmount: parseFloat(paymentamount),
+          zortoutPaymentAmount: zortoutPaymentAmount,
+          zortoutResponse: response.data
         });
       } else {
         throw new Error(`Zortout Update Payment API returned an unexpected response: ${JSON.stringify(response.data)}`);
