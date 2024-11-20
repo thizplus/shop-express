@@ -39,58 +39,43 @@ interface ReportResponse {
   };
 }
 
+// controllers/orders/getOrderReport.ts
 export const getOrderReport = async (req: Request, res: Response) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate } = req.query;
 
-    if (!startDate || !endDate) {
-      return res.status(400).json({ message: 'Start date and end date are required' });
+    if (!startDate) {
+      return res.status(400).json({ message: 'Start date is required' });
     }
 
-    // แปลงเวลาเป็น UTC สำหรับ query MongoDB
-    const thaiOffset = 7;
-    const startUtc = new Date(startDate as string);
-    const endUtc = new Date(endDate as string);
+    // แปลงวันที่เป็น UTC
+    const selectedDate = new Date(startDate as string);
+    
+    // สร้างช่วงเวลาสำหรับวันที่เลือก (00:00:00 - 23:59:59)
+    const startOfSelectedDate = new Date(selectedDate);
+    startOfSelectedDate.setHours(0, 0, 0, 0);
+    
+    const endOfSelectedDate = new Date(selectedDate);
+    endOfSelectedDate.setHours(23, 59, 59, 999);
 
-    const start = startOfDay(addHours(startUtc, -thaiOffset));
-    const end = endOfDay(addHours(endUtc, -thaiOffset));
-
-    console.log('Query date range:', {
-      start: start.toISOString(),
-      end: end.toISOString()
+    console.log('Query range:', {
+      start: startOfSelectedDate.toISOString(),
+      end: endOfSelectedDate.toISOString()
     });
 
     // ดึงข้อมูลออเดอร์
     const orders = await Order.find({
       createdAt: {
-        $gte: start,
-        $lte: end
+        $gte: startOfSelectedDate,
+        $lte: endOfSelectedDate
       },
-      'payment.status': 'success' 
+      'payment.status': 'success'
     }).sort({ createdAt: 1 });
 
-    // จัดกลุ่มข้อมูลตามวันที่ไทย
-    const dailyReports = orders.reduce<{ [key: string]: DailyReport }>((acc, order) => {
-      // แปลงเวลาเป็นเวลาไทย
-      const orderDate = addHours(new Date(order.createdAt), thaiOffset);
-      const dateKey = orderDate.toISOString().split('T')[0];
-      
-      if (!acc[dateKey]) {
-        acc[dateKey] = {
-          date: dateKey,
-          orders: [],
-          summary: {
-            totalOrders: 0,
-            totalShippingCost: 0,
-            totalAmount: 0,
-            totalNetAmount: 0,
-            totalPaymentAmount: 0
-          }
-        };
-      }
-
-      // เพิ่มข้อมูลออเดอร์
-      acc[dateKey].orders.push({
+    // สร้าง dailyReport สำหรับวันที่เลือก
+    const dailyReport = {
+      date: startOfSelectedDate.toISOString().split('T')[0],
+      orders: orders.map(order => ({
         orderId: order.orderId,
         customerName: order.shippingInfo.cusName,
         shippingCost: order.shippingCost,
@@ -101,37 +86,22 @@ export const getOrderReport = async (req: Request, res: Response) => {
         payment: {
           amount: order.payment.amount || 0
         }
-      });
-
-      // อัพเดทสรุป
-      acc[dateKey].summary.totalOrders += 1;
-      acc[dateKey].summary.totalShippingCost += order.shippingCost;
-      acc[dateKey].summary.totalAmount += order.totalAmount;
-      acc[dateKey].summary.totalNetAmount += order.netTotal;
-      acc[dateKey].summary.totalPaymentAmount += (order.payment.amount || 0);
-
-      return acc;
-    }, {});
-
-    // คำนวณสรุปรวม
-    const overallSummary: DailySummary = {
-      totalOrders: orders.length,
-      totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
-      totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
-      totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
-      totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0)
+      })),
+      summary: {
+        totalOrders: orders.length,
+        totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
+        totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
+        totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
+        totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0)
+      }
     };
 
-    // แปลงเวลาในการตอบกลับเป็นเวลาไทย
-    const responseStart = addHours(start, thaiOffset);
-    const responseEnd = addHours(end, thaiOffset);
-
-    const response: ReportResponse = {
-      dailyReports: Object.values(dailyReports),
-      summary: overallSummary,
+    const response = {
+      dailyReports: [dailyReport],
+      summary: dailyReport.summary,
       dateRange: {
-        start: responseStart,
-        end: responseEnd
+        start: startOfSelectedDate,
+        end: endOfSelectedDate
       }
     };
 
@@ -140,14 +110,9 @@ export const getOrderReport = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error generating order report:', error);
     if (error instanceof Error) {
-      res.status(500).json({ 
-        message: 'Internal server error', 
-        error: error.message 
-      });
+      res.status(500).json({ message: 'Internal server error', error: error.message });
     } else {
-      res.status(500).json({ 
-        message: 'An unknown error occurred' 
-      });
+      res.status(500).json({ message: 'An unknown error occurred' });
     }
   }
 };
