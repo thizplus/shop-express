@@ -1,7 +1,9 @@
 // controllers/orders/getOrderReport.ts
 import { Request, Response } from 'express';
-import Order, { IOrder } from '../../models/orderModel';
-import { startOfDay, endOfDay, addHours } from 'date-fns';
+import Order from '../../models/orderModel';
+import { startOfDay, endOfDay, parseISO } from 'date-fns';
+import { format } from 'date-fns-tz';
+
 
 interface DailySummary {
   totalOrders: number;
@@ -42,66 +44,112 @@ interface ReportResponse {
 // controllers/orders/getOrderReport.ts
 export const getOrderReport = async (req: Request, res: Response) => {
   try {
-    const { startDate } = req.query;
+    const { startDate, endDate } = req.query;
 
-    if (!startDate) {
-      return res.status(400).json({ message: 'Start date is required' });
+    if (!startDate || !endDate) {
+      return res.status(400).json({ message: 'Start date and end date are required' });
     }
 
-    // แปลงวันที่เป็น UTC
-    const selectedDate = new Date(startDate as string);
-    
-    // สร้างช่วงเวลาสำหรับวันที่เลือก (00:00:00 - 23:59:59)
-    const startOfSelectedDate = new Date(selectedDate);
-    startOfSelectedDate.setHours(0, 0, 0, 0);
-    
-    const endOfSelectedDate = new Date(selectedDate);
-    endOfSelectedDate.setHours(23, 59, 59, 999);
+    // แปลงวันที่เป็น UTC ตามที่เก็บใน MongoDB
+    const parsedStartDate = new Date(startDate as string);
+    const parsedEndDate = new Date(endDate as string);
 
-    console.log('Query range:', {
-      start: startOfSelectedDate.toISOString(),
-      end: endOfSelectedDate.toISOString()
-    });
-
-    // ดึงข้อมูลออเดอร์
+    // Query MongoDB ด้วยเวลา UTC
     const orders = await Order.find({
       createdAt: {
-        $gte: startOfSelectedDate,
-        $lte: endOfSelectedDate
+        $gte: parsedStartDate,
+        $lte: parsedEndDate
       },
       'payment.status': 'success'
     }).sort({ createdAt: 1 });
 
-    // สร้าง dailyReport สำหรับวันที่เลือก
-    const dailyReport = {
-      date: startOfSelectedDate.toISOString().split('T')[0],
-      orders: orders.map(order => ({
+    console.log('Query UTC range:', {
+      start: parsedStartDate.toISOString(),
+      end: parsedEndDate.toISOString()
+    });
+
+    // จัดกลุ่มตามวันที่
+    const ordersByDate = orders.reduce<{ [key: string]: any }>((acc, order) => {
+      // แปลง UTC เป็นเวลาไทยสำหรับการแสดงผล
+      const orderDate = new Date(order.createdAt);
+      
+      // Format วันที่แบบไทย
+      const dateKey = orderDate.toLocaleString('th-TH', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      
+      // Format เวลา
+      const timeStr = orderDate.toLocaleString('th-TH', {
+        timeZone: 'Asia/Bangkok',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
+      const fullDateTimeStr = `${dateKey} ${timeStr}`;
+
+      if (!acc[dateKey]) {
+        acc[dateKey] = {
+          date: dateKey,
+          orders: [],
+          summary: {
+            totalOrders: 0,
+            totalShippingCost: 0,
+            totalAmount: 0,
+            totalNetAmount: 0,
+            totalPaymentAmount: 0
+          }
+        };
+      }
+
+      // เพิ่มข้อมูลออเดอร์
+      acc[dateKey].orders.push({
         orderId: order.orderId,
         customerName: order.shippingInfo.cusName,
         shippingCost: order.shippingCost,
         totalAmount: order.totalAmount,
         netTotal: order.netTotal,
         status: order.payment.status,
-        createdAt: order.createdAt.toISOString(),
+        createdAt: fullDateTimeStr,
         payment: {
           amount: order.payment.amount || 0
         }
-      })),
-      summary: {
-        totalOrders: orders.length,
-        totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
-        totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
-        totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
-        totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0)
-      }
+      });
+
+      // อัพเดทสรุปรายวัน
+      acc[dateKey].summary.totalOrders += 1;
+      acc[dateKey].summary.totalShippingCost += order.shippingCost;
+      acc[dateKey].summary.totalAmount += order.totalAmount;
+      acc[dateKey].summary.totalNetAmount += order.netTotal;
+      acc[dateKey].summary.totalPaymentAmount += (order.payment.amount || 0);
+
+      return acc;
+    }, {});
+
+    // แปลง object เป็น array และจัดเรียงตามวันที่
+    const dailyReports = Object.values(ordersByDate).sort((a: any, b: any) => {
+      const dateA = new Date(a.orders[0].createdAt.replace(/[^\d\s:]/g, ''));
+      const dateB = new Date(b.orders[0].createdAt.replace(/[^\d\s:]/g, ''));
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    // คำนวณสรุปรวม
+    const overallSummary = {
+      totalOrders: orders.length,
+      totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
+      totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
+      totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
+      totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0)
     };
 
-    const response = {
-      dailyReports: [dailyReport],
-      summary: dailyReport.summary,
+    const response: ReportResponse = {
+      dailyReports: dailyReports as DailyReport[],
+      summary: overallSummary,
       dateRange: {
-        start: startOfSelectedDate,
-        end: endOfSelectedDate
+        start: parsedStartDate,
+        end: parsedEndDate
       }
     };
 
@@ -109,10 +157,9 @@ export const getOrderReport = async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Error generating order report:', error);
-    if (error instanceof Error) {
-      res.status(500).json({ message: 'Internal server error', error: error.message });
-    } else {
-      res.status(500).json({ message: 'An unknown error occurred' });
-    }
+    res.status(500).json({
+      message: 'Internal server error',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };
