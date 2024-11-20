@@ -198,10 +198,14 @@ export const voidOrderToZortout = async (req: Request, res: Response) => {
   }
 };
 
-
 export const updatePaymentToZortout = async (req: Request, res: Response) => {
   try {
-    const { orderId, paymentamount, paymentmethod, slipUrl } = req.body; // เพิ่ม slipUrl รับจาก frontend
+    // เพิ่ม slipUrl ใน request body
+    const { orderId, paymentamount, paymentmethod, slipUrl } = req.body;
+
+    if (!slipUrl) {
+      return res.status(400).json({ message: 'Slip URL is required' });
+    }
 
     const storeName = process.env.ZORTOUT_STORENAME;
     const apiKey = process.env.ZORTOUT_APIKEY;
@@ -220,9 +224,9 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
     }
 
     try {
-      // เรียก API เพื่อดึงข้อมูล order จาก Zortout
+      // เรียก API GetOrderDetail เพื่อดึงข้อมูล order จาก Zortout
       const orderDetailsResponse = await axios.get(
-        `https://open-api.zortout.com/v4/Order/GetOrder?id=${order.zortoutId}`,
+        `https://open-api.zortout.com/v4/Order/GetOrderDetail?id=${order.zortoutId}`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -233,14 +237,14 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
         }
       );
 
-      if (orderDetailsResponse.data.resCode !== "200") {
-        throw new Error(`Failed to get order details from Zortout: ${orderDetailsResponse.data.resDesc}`);
+      if (!orderDetailsResponse.data) {
+        throw new Error('Failed to get order details from Zortout');
       }
 
       // ดึงข้อมูลยอดเงินจาก Zortout
-      const orderDetails = orderDetailsResponse.data.detail;
-      const totalAmount = parseFloat(orderDetails.total);
-      const paidAmount = parseFloat(orderDetails.paid || 0);
+      const orderDetails = orderDetailsResponse.data;
+      const totalAmount = parseFloat(orderDetails.amount);
+      const paidAmount = parseFloat(orderDetails.paymentamount || 0);
       const remainingAmount = totalAmount - paidAmount;
 
       // คำนวณยอดเงินที่จะส่งไป Zortout
@@ -269,14 +273,14 @@ export const updatePaymentToZortout = async (req: Request, res: Response) => {
           { orderId: orderId },
           { 
             $set: { 
-              'payment.status': paidAmount + zortoutPaymentAmount >= totalAmount ? 'success' : 'pending', // แก้จาก completed เป็น success
+              'payment.status': paidAmount + zortoutPaymentAmount >= totalAmount ? 'success' : 'pending',
               'payment.amount': order.payment.amount + parseFloat(paymentamount)
             },
             $push: { 
               'payment.slip': {
-                url: slipUrl,
+                url: slipUrl, // เพิ่ม url
                 amount: parseFloat(paymentamount),
-                uploadedAt: new Date()
+                uploadedAt: new Date() // เปลี่ยนจาก timestamp เป็น uploadedAt
               }
             }
           }
