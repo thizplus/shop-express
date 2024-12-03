@@ -22,6 +22,10 @@ export interface IOrder extends Document {
     province: string;
     zipcode: string;
     isDefault: boolean;
+    // เพิ่ม tracking information
+    trackingNo?: string;
+    shippingChannel?: string;
+    trackingUpdateAt?: Date;
   };
   shippingCost: number;
   totalAmount: number;
@@ -62,7 +66,11 @@ const OrderSchema: Schema = new Schema({
     amphoe: { type: String, required: true },
     province: { type: String, required: true },
     zipcode: { type: String, required: true },
-    isDefault: { type: Boolean, required: true }
+    isDefault: { type: Boolean, required: true },
+    // เพิ่ม tracking information โดยไม่ต้อง required
+    trackingNo: { type: String },
+    shippingChannel: { type: String },
+    trackingUpdateAt: { type: Date }
   },
   shippingCost: { type: Number, required: true },
   totalAmount: { type: Number, required: true },

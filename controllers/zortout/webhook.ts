@@ -9,6 +9,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductController';
 import { emitMultiPriceProductUpdate } from '../wholesale/getProductsWithMultiPrices';
 
+import Order from '../../models/orderModel';
 
 // ฟังก์ชันสำหรับบันทึก log
 const logToFile = (event: string, data: any) => {
@@ -31,12 +32,49 @@ export const addOrder = (req: Request, res: Response) => {
   res.status(200).json({ message: 'ADDORDER webhook received' });
 };
 
+/*
 export const updateOrder = (req: Request, res: Response) => {
   const data = req.body;
   console.log('Received UPDATEORDER webhook:', data);
   logToFile('UPDATEORDER', data);
   // ทำการประมวลผลข้อมูลตามต้องการ
   res.status(200).json({ message: 'UPDATEORDER webhook received' });
+};
+*/
+
+export const updateOrder = async (req: Request, res: Response) => {
+  try {
+    const data = req.body;
+    console.log('Received UPDATEORDER webhook:', data);
+
+    // ค้นหา order จาก number ที่ได้จาก webhook
+    const order = await Order.findOne({ orderId: data.number });
+    
+    if (!order) {
+      console.log(`Order not found: ${data.number}`);
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // อัพเดทข้อมูล shipping tracking
+    if (data.trackingno || data.shippingchannel) {
+      const updateData = {
+        'shippingInfo.trackingNo': data.trackingno || '',
+        'shippingInfo.shippingChannel': data.shippingchannel || '',
+        'shippingInfo.trackingUpdateAt': new Date()
+      };
+
+      await Order.findOneAndUpdate(
+        { orderId: data.number },
+        { $set: updateData },
+        { new: true }
+      );
+    }
+
+    res.status(200).json({ message: 'Order updated successfully' });
+  } catch (error) {
+    console.error('Error updating order:', error);
+    res.status(500).json({ message: 'Error updating order', error });
+  }
 };
 
 export const updateOrderTracking = (req: Request, res: Response) => {
