@@ -10,6 +10,7 @@ import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductControl
 import { emitMultiPriceProductUpdate } from '../wholesale/getProductsWithMultiPrices';
 
 import Order from '../../models/orderModel';
+import uploadImageToFirebase from '../../functions/uploadImageToFirebase';
 
 // ฟังก์ชันสำหรับบันทึก log
 const logToFile = (event: string, data: any) => {
@@ -46,6 +47,7 @@ export const updateOrder = async (req: Request, res: Response) => {
   try {
     const data = req.body;
     console.log('Received UPDATEORDER webhook:', data);
+    logToFile('UPDATEORDER', data);
 
     // ค้นหา order จาก number ที่ได้จาก webhook
     const order = await Order.findOne({ orderId: data.number });
@@ -103,6 +105,7 @@ export const addProduct = (req: Request, res: Response) => {
   res.status(200).json({ message: 'ADDPRODUCT webhook received' });
 };
 
+/*
 export const updateProduct = (req: Request, res: Response) => {
   const data = req.body;
   console.log('Received UPDATEPRODUCT webhook:', data);
@@ -110,7 +113,62 @@ export const updateProduct = (req: Request, res: Response) => {
   // ทำการประมวลผลข้อมูลตามต้องการ เช่น อัปเดตข้อมูลสินค้าในฐานข้อมูล
   res.status(200).json({ message: 'UPDATEPRODUCT webhook received' });
 };
+*/
 
+export const updateProduct = async (req: Request, res: Response) => {
+  try {
+    const data = req.body;
+    console.log('Received UPDATEPRODUCT webhook:', data);
+
+    // ค้นหาสินค้าจาก id
+    const existingProduct = await Product.findOne({ id: data.id });
+    
+    if (!existingProduct) {
+      console.log(`Product not found: ${data.id}`);
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    // ตรวจสอบว่ามีการเปลี่ยนแปลงรูปภาพหรือไม่
+    if (data.imagepath && data.imagepath !== existingProduct.imagepath) {
+      // อัพโหลดรูปภาพใหม่ไปยัง Firebase
+      const firebaseImageUrl = await uploadImageToFirebase(data.imagepath, data.sku);
+      
+      if (firebaseImageUrl) {
+        // อัพเดทเฉพาะ imagepath
+        const updatedProduct = await Product.findOneAndUpdate(
+          { id: data.id },
+          { 
+            $set: { 
+              imagepath: firebaseImageUrl,
+              updatedAt: new Date()
+            } 
+          },
+          { new: true }
+        );
+
+        console.log('Product image updated successfully:', updatedProduct);
+        logToFile('UPDATEPRODUCT', data);
+        return res.status(200).json({ 
+          message: 'Product image updated successfully',
+          product: updatedProduct
+        });
+      }
+    }
+
+    // ถ้าไม่มีการเปลี่ยนแปลงรูปภาพ
+    res.status(200).json({ 
+      message: 'No image update needed',
+      product: existingProduct
+    });
+
+  } catch (error) {
+    console.error('Error updating product image:', error);
+    res.status(500).json({ 
+      message: 'Error updating product image', 
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+};
 
 export const updateProductQuantity = async (req: Request, res: Response) => {
   try {
