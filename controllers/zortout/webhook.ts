@@ -3,7 +3,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import Product from '../../models/productModel'; // ปรับ path ตามโครงสร้างโปรเจคของคุณ
+import Product, { IProduct } from '../../models/productModel'; // ปรับ path ตามโครงสร้างโปรเจคของคุณ
 import { Server as SocketIOServer } from 'socket.io';
 
 import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductController';
@@ -114,61 +114,67 @@ export const updateProduct = (req: Request, res: Response) => {
   res.status(200).json({ message: 'UPDATEPRODUCT webhook received' });
 };
 */
-
 export const updateProduct = async (req: Request, res: Response) => {
   try {
-    const data = req.body;
+    const data: Partial<IProduct> = req.body; // ใช้ Partial เพื่อให้ฟิลด์ทั้งหมดไม่จำเป็นต้องถูกกำหนด
     console.log('Received UPDATEPRODUCT webhook:', data);
 
     // ค้นหาสินค้าจาก id
     const existingProduct = await Product.findOne({ id: data.id });
-    
+
     if (!existingProduct) {
       console.log(`Product not found: ${data.id}`);
       return res.status(404).json({ message: 'Product not found' });
     }
 
-    // ตรวจสอบว่ามีการเปลี่ยนแปลงรูปภาพหรือไม่
+    // ตรวจสอบความเปลี่ยนแปลงของ name และ imagepath
+    const updates: Partial<IProduct> & { updatedAt?: Date } = {};
+
+    if (data.name && data.name !== existingProduct.name) {
+      updates.name = data.name;
+    }
+
     if (data.imagepath && data.imagepath !== existingProduct.imagepath) {
       // อัพโหลดรูปภาพใหม่ไปยัง Firebase
-      const firebaseImageUrl = await uploadImageToFirebase(data.imagepath, data.sku);
-      
+      const firebaseImageUrl = await uploadImageToFirebase(data.imagepath, data.sku || '');
       if (firebaseImageUrl) {
-        // อัพเดทเฉพาะ imagepath
-        const updatedProduct = await Product.findOneAndUpdate(
-          { id: data.id },
-          { 
-            $set: { 
-              imagepath: firebaseImageUrl,
-              updatedAt: new Date()
-            } 
-          },
-          { new: true }
-        );
-
-        console.log('Product image updated successfully:', updatedProduct);
-        logToFile('UPDATEPRODUCT', data);
-        return res.status(200).json({ 
-          message: 'Product image updated successfully',
-          product: updatedProduct
-        });
+        updates.imagepath = firebaseImageUrl;
       }
     }
 
-    // ถ้าไม่มีการเปลี่ยนแปลงรูปภาพ
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = new Date();
+
+      // อัพเดทข้อมูลสินค้าใน MongoDB
+      const updatedProduct = await Product.findOneAndUpdate(
+        { id: data.id },
+        { $set: updates },
+        { new: true }
+      );
+
+      console.log('Product updated successfully:', updatedProduct);
+      logToFile('UPDATEPRODUCT', data);
+      return res.status(200).json({ 
+        message: 'Product updated successfully',
+        product: updatedProduct
+      });
+    }
+
+    // ถ้าไม่มีการเปลี่ยนแปลงใด ๆ
     res.status(200).json({ 
-      message: 'No image update needed',
+      message: 'No updates needed',
       product: existingProduct
     });
 
   } catch (error) {
-    console.error('Error updating product image:', error);
+    console.error('Error updating product:', error);
     res.status(500).json({ 
-      message: 'Error updating product image', 
+      message: 'Error updating product', 
       error: error instanceof Error ? error.message : String(error)
     });
   }
 };
+
 
 export const updateProductQuantity = async (req: Request, res: Response) => {
   try {
