@@ -4,6 +4,8 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import Product, { IProduct } from '../../models/productModel'; // ปรับ path ตามโครงสร้างโปรเจคของคุณ
+import IPrice from '../../models/priceModel'; // นำเข้าโมเดล Price
+
 import { Server as SocketIOServer } from 'socket.io';
 
 import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductController';
@@ -114,9 +116,16 @@ export const updateProduct = (req: Request, res: Response) => {
   res.status(200).json({ message: 'UPDATEPRODUCT webhook received' });
 };
 */
+interface ProductData {
+  id: number;
+  name?: string;
+  imagepath?: string;
+  sku?: string;
+}
+
 export const updateProduct = async (req: Request, res: Response) => {
   try {
-    const data: Partial<IProduct> = req.body; // ใช้ Partial เพื่อให้ฟิลด์ทั้งหมดไม่จำเป็นต้องถูกกำหนด
+    const data: ProductData = req.body;
     console.log('Received UPDATEPRODUCT webhook:', data);
 
     // ค้นหาสินค้าจาก id
@@ -128,10 +137,16 @@ export const updateProduct = async (req: Request, res: Response) => {
     }
 
     // ตรวจสอบความเปลี่ยนแปลงของ name และ imagepath
-    const updates: Partial<IProduct> & { updatedAt?: Date } = {};
+    const updates: Partial<ProductData> & { updatedAt?: Date } = {};
 
     if (data.name && data.name !== existingProduct.name) {
       updates.name = data.name;
+
+      // อัปเดตชื่อใน tbl_store_price โดยใช้ SKU
+      await IPrice.updateOne(
+        { sku: data.sku },
+        { $set: { name: data.name, updatedAt: new Date() } }
+      );
     }
 
     if (data.imagepath && data.imagepath !== existingProduct.imagepath) {
