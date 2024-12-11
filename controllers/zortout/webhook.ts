@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import Product, { IProduct } from '../../models/productModel'; // ปรับ path ตามโครงสร้างโปรเจคของคุณ
-import IPrice from '../../models/priceModel'; // นำเข้าโมเดล Price
+import StorePrice from '../../models/priceModel'; // นำเข้าโมเดล Price
 
 import { Server as SocketIOServer } from 'socket.io';
 
@@ -143,10 +143,12 @@ export const updateProduct = async (req: Request, res: Response) => {
       updates.name = data.name;
 
       // อัปเดตชื่อใน tbl_store_price โดยใช้ SKU
-      await IPrice.updateOne(
+      const priceUpdateResult = await StorePrice.updateMany(
         { sku: data.sku },
         { $set: { name: data.name, updatedAt: new Date() } }
       );
+
+      console.log('StorePrice update result:', priceUpdateResult);
     }
 
     if (data.imagepath && data.imagepath !== existingProduct.imagepath) {
@@ -189,6 +191,8 @@ export const updateProduct = async (req: Request, res: Response) => {
     });
   }
 };
+
+
 
 
 export const updateProductQuantity = async (req: Request, res: Response) => {
