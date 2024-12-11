@@ -94,15 +94,28 @@ async function ensurePriceDocument(product: ZortoutProduct, priceTemplate: Price
         });
         console.log(`Created new price document for SKU: ${product.sku}`);
     } else {
-        // Check and add missing price levels
+        let needsUpdate = false;
+        
+        // เช็คและอัพเดทชื่อเสมอ
+        if (priceDoc.name !== product.name) {
+            priceDoc.name = product.name;
+            needsUpdate = true;
+            console.log(`Updated name for SKU: ${product.sku} to: ${product.name}`);
+        }
+
+        // เช็ค missing prices
         const existingPriceIds = priceDoc.listPrice.map(p => p.priceId);
         const missingPrices = priceTemplate.filter(p => !existingPriceIds.includes(p.priceId));
 
         if (missingPrices.length > 0) {
             priceDoc.listPrice.push(...missingPrices);
-            priceDoc.name = product.name; // Update name if changed
-            await priceDoc.save();
+            needsUpdate = true;
             console.log(`Added missing prices for SKU: ${product.sku}`, missingPrices);
+        }
+
+        // บันทึกถ้ามีการเปลี่ยนแปลง
+        if (needsUpdate) {
+            await priceDoc.save();
         }
     }
 
