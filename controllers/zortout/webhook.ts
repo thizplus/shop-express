@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import Product, { IProduct } from '../../models/productModel'; // ปรับ path ตามโครงสร้างโปรเจคของคุณ
-import StorePrice from '../../models/priceModel'; // นำเข้าโมเดล Price
+import Price from '../../models/priceModel'; // เปลี่ยนจาก StorePrice เป็น Price
 
 import { Server as SocketIOServer } from 'socket.io';
 
@@ -125,7 +125,7 @@ interface ProductData {
 
 export const updateProduct = async (req: Request, res: Response) => {
   try {
-    const data: ProductData = req.body;
+    const data = req.body;
     console.log('Received UPDATEPRODUCT webhook:', data);
 
     // ค้นหาสินค้าจาก id
@@ -136,33 +136,40 @@ export const updateProduct = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Product not found' });
     }
 
+    // ตรวจสอบและอัพเดทข้อมูลใน tbl_store_price ก่อน
+    if (data.sku) {
+      const priceUpdateResult = await Price.findOneAndUpdate(
+        { sku: data.sku },
+        { 
+          $set: { 
+            name: data.name || existingProduct.name,
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      );
+      console.log('Price update result:', priceUpdateResult);
+    }
+
     // ตรวจสอบความเปลี่ยนแปลงของ name และ imagepath
     const updates: Partial<ProductData> & { updatedAt?: Date } = {};
 
     if (data.name && data.name !== existingProduct.name) {
       updates.name = data.name;
-
-      // อัปเดตชื่อใน tbl_store_price โดยใช้ SKU
-      const priceUpdateResult = await StorePrice.updateMany(
-        { sku: data.sku },
-        { $set: { name: data.name, updatedAt: new Date() } }
-      );
-
-      console.log('StorePrice update result:', priceUpdateResult);
     }
 
     if (data.imagepath && data.imagepath !== existingProduct.imagepath) {
-      // อัพโหลดรูปภาพใหม่ไปยัง Firebase
       const firebaseImageUrl = await uploadImageToFirebase(data.imagepath, data.sku || '');
       if (firebaseImageUrl) {
         updates.imagepath = firebaseImageUrl;
       }
     }
 
+   
+
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = new Date();
 
-      // อัพเดทข้อมูลสินค้าใน MongoDB
       const updatedProduct = await Product.findOneAndUpdate(
         { id: data.id },
         { $set: updates },
@@ -177,7 +184,6 @@ export const updateProduct = async (req: Request, res: Response) => {
       });
     }
 
-    // ถ้าไม่มีการเปลี่ยนแปลงใด ๆ
     res.status(200).json({ 
       message: 'No updates needed',
       product: existingProduct
