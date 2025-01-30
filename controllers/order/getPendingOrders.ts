@@ -47,7 +47,7 @@ export const getPendingOrders = async (req: Request, res: Response) => {
 export const getLatestPendingOrder = async (req: Request, res: Response) => {
   try {
     const { userId, typeId } = req.params;
-    console.log('Getting latest pending order:', { userId, typeId });
+   // console.log('Getting latest pending order:', { userId, typeId });
 
     if (!userId || !typeId) {
       console.log('Missing required params');

@@ -41,8 +41,8 @@ export const getProducts = async (req: Request, res: Response) => {
           stock: 1,
           availablestock: 1,
           imagepath: 1,
-          categoryid: 1,
-          category: 1,
+          categories: 1,
+
           active: 1,
           createdAt: 1,
           updatedAt: 1,
@@ -102,3 +102,4 @@ export const getProducts = async (req: Request, res: Response) => {
     });
   }
 };
+

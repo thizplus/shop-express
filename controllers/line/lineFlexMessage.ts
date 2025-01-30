@@ -52,6 +52,84 @@ export const sendLineFlexMessage = async (req: Request, res: Response) => {
                 margin: 'md'
               },
               {
+                type: 'box',
+                layout: 'vertical',
+                margin: 'xl',
+                contents: [
+                  {
+                    type: 'text',
+                    text: 'ข้อมูลการจัดส่ง',
+                    weight: 'bold',
+                    color: '#27ACB2',
+                    size: 'md'
+                  },
+                  {
+                    type: 'box',
+                    layout: 'vertical',
+                    margin: 'sm',
+                    spacing: 'sm',
+                    contents: [
+                      {
+                        type: 'box',
+                        layout: 'horizontal',
+                        contents: [
+                          { 
+                            type: 'text', 
+                            text: 'รูปแบบการจัดส่ง', 
+                            size: 'sm', 
+                            color: '#555555', 
+                            flex: 2 
+                          },
+                          { 
+                            type: 'text', 
+                            text: orderData.shippingMethod === 'grab' ? 'จัดส่งผ่าน Grab' : 'จัดส่งมาตรฐาน', 
+                            size: 'sm', 
+                            color: '#111111', 
+                            flex: 3,
+                            align: 'end'
+                          }
+                        ]
+                      },
+                      {
+                        type: 'box',
+                        layout: 'horizontal',
+                        contents: [
+                          { 
+                            type: 'text', 
+                            text: 'เบอร์โทร', 
+                            size: 'sm', 
+                            color: '#555555', 
+                            flex: 2 
+                          },
+                          { 
+                            type: 'text', 
+                            text: orderData.shippingInfo.cusTel, 
+                            size: 'sm', 
+                            color: '#111111', 
+                            flex: 3,
+                            align: 'end'
+                          }
+                        ]
+                      },
+                      {
+                        type: 'text',
+                        text: `${orderData.shippingInfo.addressNo} ${orderData.shippingInfo.district} ${orderData.shippingInfo.amphoe}`,
+                        size: 'sm',
+                        color: '#555555',
+                        wrap: true
+                      },
+                      {
+                        type: 'text',
+                        text: `${orderData.shippingInfo.province} ${orderData.shippingInfo.zipcode}`,
+                        size: 'sm',
+                        color: '#555555'
+                      }
+                    ]
+                  }
+                ]
+              },
+           
+              {
                 type: 'separator',
                 margin: 'xl'
               },

@@ -1,242 +1,162 @@
 // controllers/product/import.ts
 import { Request, Response } from 'express';
-import axios from 'axios';
 import Product from '../../models/productModel';
 import Category from '../../models/categoryModel';
 import Price from '../../models/priceModel';
-import Config from '../../models/configStore';
-import uploadImageToFirebase from '../../functions/uploadImageToFirebase';
+import PriceList from '../../models/priceListModel';
 
-// Interfaces
-interface ZortoutProduct {
-    id: number;
+
+interface CategoryObj {
+  catId: string;
+  name: string; 
+ }
+ interface ImportedProduct {
     name: string;
     sku: string;
     stock: number;
     availablestock: number;
     imagepath: string | null;
-    categoryid: number | null;
-    category: string | null;
+    categories: CategoryObj[];
     active: boolean;
-}
-
-interface ZortoutResponse {
-    res: {
-        resCode: string;
-        resDesc: string;
-    };
-    list: ZortoutProduct[];
-    count: number;
-}
-
-interface PriceLevel {
-    priceId: string;
-    priceName: string;
-    price: number;
-    createdAt: Date;
-    updatedAt: Date;
-}
-
-// Utility Functions
-async function getPriceTemplate(): Promise<PriceLevel[]> {
-    const config = await Config.findOne({});
-    if (!config?.saleModel?.listPrice) {
-        throw new Error('Price configuration not found');
-    }
-
-    return config.saleModel.listPrice.map(price => ({
-        priceId: price.id,
-        priceName: price.name,
-        price: 0,
-        createdAt: new Date(),
-        updatedAt: new Date()
-    }));
-}
-
-async function fetchProductsFromZortout(page: number, limit: number): Promise<ZortoutResponse> {
-    const url = `https://open-api.zortout.com/v4/Product/GetProducts?page=${page}&limit=${limit}`;
-
-    const storename = process.env.ZORTOUT_STORENAME;
-    const apikey = process.env.ZORTOUT_APIKEY;
-    const apisecret = process.env.ZORTOUT_APISECRET;
-
-    if (!storename || !apikey || !apisecret) {
-        throw new Error('Zortout API credentials are not set in environment variables');
-    }
-
-    console.log('Requesting Zortout API with URL:', url);
-
-    const response = await axios.get<ZortoutResponse>(url, {
-        headers: {
-            'storename': storename,
-            'apikey': apikey,
-            'apisecret': apisecret
-        },
-        timeout: 30000
+   }
+   
+   interface ResponseData {
+    items: ImportedProduct[];
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+   }
+   
+   async function createCategoriesIfNotExist(products: ImportedProduct[]): Promise<void> {
+    const uniqueCategories = new Map<string, CategoryObj>();
+    products.forEach(product => {
+      product.categories.forEach(cat => {
+        uniqueCategories.set(cat.catId, cat);
+      });
     });
-
-    if (!response.data || !response.data.list || !Array.isArray(response.data.list)) {
-        throw new Error('Unexpected response structure from Zortout API');
-    }
-
-    return response.data;
-}
-
-async function ensurePriceDocument(product: ZortoutProduct, priceTemplate: PriceLevel[]) {
-    let priceDoc = await Price.findOne({ sku: product.sku });
-
-    if (!priceDoc) {
-        // Create new price document
-        priceDoc = await Price.create({
-            sku: product.sku,
-            name: product.name,
-            listPrice: priceTemplate
+   
+    for (const cat of uniqueCategories.values()) {
+      const existingCategory = await Category.findOne({ catId: cat.catId });
+      if (!existingCategory) {
+        await Category.create({
+          catId: cat.catId,
+          name: cat.name,
+          description: '',
+          active: true
         });
-        console.log(`Created new price document for SKU: ${product.sku}`);
-    } else {
-        let needsUpdate = false;
-        
-        // เช็คและอัพเดทชื่อเสมอ
-        if (priceDoc.name !== product.name) {
-            priceDoc.name = product.name;
-            needsUpdate = true;
-            console.log(`Updated name for SKU: ${product.sku} to: ${product.name}`);
-        }
-
-        // เช็ค missing prices
-        const existingPriceIds = priceDoc.listPrice.map(p => p.priceId);
-        const missingPrices = priceTemplate.filter(p => !existingPriceIds.includes(p.priceId));
-
-        if (missingPrices.length > 0) {
-            priceDoc.listPrice.push(...missingPrices);
-            needsUpdate = true;
-            console.log(`Added missing prices for SKU: ${product.sku}`, missingPrices);
-        }
-
-        // บันทึกถ้ามีการเปลี่ยนแปลง
-        if (needsUpdate) {
-            await priceDoc.save();
-        }
+      }
     }
-
-    return priceDoc;
-}
-
-async function saveProductsToMongoDB(products: ZortoutProduct[], priceTemplate: PriceLevel[]): Promise<void> {
-    // Process categories
-    const categoryOperations = products
-        .filter(product => product.categoryid && product.category)
-        .map(product => ({
-            updateOne: {
-                filter: { id: product.categoryid },
-                update: { $set: { id: product.categoryid, name: product.category } },
-                upsert: true
-            }
+   }
+   
+   async function importProductBatch(
+    products: ImportedProduct[], 
+    nextId: number, 
+    priceLists: any[]
+   ): Promise<number> {
+    for (const item of products) {
+      const existingProduct = await Product.findOne({ sku: item.sku });
+      
+      // Handle price document
+      const existingPrice = await Price.findOne({ sku: item.sku });
+      if (!existingPrice) {
+        const listPrice = priceLists.map(price => ({
+          priceId: price.priceId,
+          priceName: price.priceName,
+          price: 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
         }));
-
-    // Process products and prices
-    const productOperations = await Promise.all(products.map(async product => {
-        // Ensure price document exists with all price levels
-        await ensurePriceDocument(product, priceTemplate);
-
-        // Get existing product to check current status
-        const existingProduct = await Product.findOne({ id: product.id });
-        let firebaseImageUrl: string | null = null;
-
-        if (existingProduct && existingProduct.imagepath && existingProduct.imagepath.startsWith('https://firebasestorage.googleapis.com')) {
-            firebaseImageUrl = existingProduct.imagepath;
-        } else if (product.imagepath) {
-            firebaseImageUrl = await uploadImageToFirebase(product.imagepath, product.sku);
-        }
-
-        const updateData: any = {
-            id: product.id,
-            name: product.name,
-            sku: product.sku,
-            stock: product.stock,
-            availablestock: product.availablestock,
-            imagepath: firebaseImageUrl || product.imagepath,
-            categoryid: product.categoryid,
-            category: product.category,
-            // กำหนด active status ตามเงื่อนไข availablestock
-            active: product.availablestock > 0 ? (existingProduct?.active ?? true) : false,
-            // ถ้าเป็นสินค้าใหม่และ availablestock = 0 จะถูกตั้งเป็น false
-            // ถ้าเป็นสินค้าเก่าและ availablestock = 0 จะถูกตั้งเป็น false
-            // ถ้า availablestock > 0 จะใช้ค่า active เดิม (ถ้ามี) หรือ true (ถ้าเป็นสินค้าใหม่)
-            updatedAt: new Date()
-        };
-
-        return {
-            updateOne: {
-                filter: { id: product.id },
-                update: { $set: updateData },
-                upsert: true
+   
+        await Price.create({
+          sku: item.sku,
+          name: item.name,
+          listPrice
+        });
+      } else {
+        await Price.updateOne(
+          { sku: item.sku },
+          { $set: { name: item.name } }
+        );
+      }
+   
+      // Handle product document
+      if (existingProduct) {
+        await Product.updateOne(
+          { sku: item.sku },
+          {
+            $set: {
+              name: item.name,
+              stock: item.stock,
+              availablestock: item.availablestock,
+              imagepath: item.imagepath,
+              categories: item.categories,
+              active: item.active
             }
-        };
-    }));
-
-    // Execute all operations
-    if (categoryOperations.length > 0) {
-        await Category.bulkWrite(categoryOperations);
+          }
+        );
+      } else {
+        await Product.create({
+          id: nextId++,
+          name: item.name,
+          sku: item.sku,
+          stock: item.stock,
+          availablestock: item.availablestock,
+          imagepath: item.imagepath,
+          categories: item.categories,
+          active: item.active
+        });
+      }
     }
-    await Product.bulkWrite(productOperations);
-}
-
-// Main Import Function
-export const importProductsFromZortout = async (req: Request, res: Response): Promise<void> => {
+    
+    return nextId;
+   }
+   
+   export const importProductsFromStore = async (req: Request, res: Response) => {
     try {
-        // Get price template first
-        const priceTemplate = await getPriceTemplate();
-        console.log('Using price template:', priceTemplate);
-
-        let page = 1;
-        let totalCount = 0;
-        let processedCount = 0;
-        let isComplete = false;
-        const limit = 500;
-
-        // Main import loop
-        while (!isComplete) {
-            console.log(`Fetching page ${page}`);
-            const data = await fetchProductsFromZortout(page, limit);
-            totalCount = data.count;
-
-            if (!Array.isArray(data.list) || data.list.length === 0) {
-                console.log('No products found or empty list received');
-                break;
-            }
-
-            const batchSize = 100;
-            for (let i = 0; i < data.list.length; i += batchSize) {
-                const batch = data.list.slice(i, Math.min(i + batchSize, data.list.length));
-                await saveProductsToMongoDB(batch, priceTemplate);
-                processedCount += batch.length;
-                console.log(`Processed ${processedCount} of ${totalCount} products`);
-
-                if (processedCount >= totalCount) {
-                    isComplete = true;
-                    break;
-                }
-            }
-
-            if (data.list.length < limit) {
-                isComplete = true;
-            }
-
-            if (isComplete) break;
-            page++;
+      let page = 1;
+      let totalImported = 0;
+      let isComplete = false;
+      const batchSize = 100;
+      
+      // Get price lists
+      const priceLists = await PriceList.find({ status: true });
+      
+      // Get last product ID
+      const lastProduct = await Product.findOne().sort({id: -1});
+      let nextId = lastProduct ? lastProduct.id + 1 : 1;
+   
+      // Main import loop
+      while (!isComplete) {
+        const response = await fetch(
+          `${process.env.STORE_API_URL}/api/products/all-import?page=${page}&limit=${batchSize}`
+        );
+        
+        if (!response.ok) throw new Error('Failed to fetch products');
+        const data = await response.json() as ResponseData;
+   
+        // Create categories for this batch
+        await createCategoriesIfNotExist(data.items);
+   
+        // Process products in batch
+        nextId = await importProductBatch(data.items, nextId, priceLists);
+        totalImported += data.items.length;
+   
+        if (page >= data.totalPages) {
+          isComplete = true;
+        } else {
+          page++;
         }
-
-        res.status(200).json({ 
-            message: 'Import completed successfully', 
-            totalImported: processedCount,
-            pricesUpdated: true
-        });
+      }
+   
+      res.status(200).json({
+        message: 'นำเข้าข้อมูลสำเร็จ',
+        totalImported
+      });
+   
     } catch (error) {
-        console.error('Error during import:', error);
-        res.status(500).json({
-            message: 'Error during import',
-            error: error instanceof Error ? error.message : String(error)
-        });
+      console.error('Error:', error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการนำเข้า'
+      });
     }
-};
+   };

@@ -1,232 +1,207 @@
-// getProductsWithMultiPrices.ts
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import Price from '../../models/priceModel';
 import Product, { IProduct } from '../../models/productModel';
 import Category from '../../models/categoryModel';
+import PriceList from '../../models/priceListModel';
+import StoreConfig from '../../models/configStore';
 
 interface PriceItem {
-  priceId: string;
-  priceName: string;
-  price: number;
-  updatedAt: Date;
+ priceId: string;
+ priceName: string;
+ price: number;
+ updatedAt: Date;
 }
 
 interface ProductWithPrices {
-  sku: string;
-  name: string;
-  prices: PriceItem[];
+ sku: string;
+ name: string;
+ prices: PriceItem[];
 }
 
 const globalClientPriceIds = new Map<string, string[]>();
 
 export const setupMultiPriceProductSocket = (io: SocketIOServer) => {
-  io.on('connection', (socket: Socket) => {
-    console.log('Client connected to multi-price products namespace');
+ io.on('connection', async (socket: Socket) => {
+  const config = await StoreConfig.findOne();
+  const priceIds = (socket.handshake.query.priceIds as string || '').split(',');
+   
+   if (priceIds.length > 0) {
+     const activePriceLists = await PriceList.find({ 
+       priceId: { $in: priceIds },
+       status: true 
+     });
+     const validPriceIds = activePriceLists
+  .sort((a, b) => {
+    const priceA = config?.saleModel.listPrice.find(p => p.id === a.priceId);
+    const priceB = config?.saleModel.listPrice.find(p => p.id === b.priceId);
+    return (priceB?.minPurchase || 0) - (priceA?.minPurchase || 0);
+  })
+  .map(p => p.priceId);
+     globalClientPriceIds.set(socket.id, validPriceIds);
+   }
 
-    const priceIds = (socket.handshake.query.priceIds as string || '').split(',');
-    if (priceIds.length > 0) {
-      globalClientPriceIds.set(socket.id, priceIds);
-      console.log(`Client ${socket.id} connected with priceIds: ${priceIds.join(', ')}`);
-    }
+   socket.on('requestMultiPriceProducts', async (data) => {
+     const { page = 1, limit = 20, searchTerm = '', selectedCategory = '', showAvailableOnly = false } = data;
+     const clientPriceIds = globalClientPriceIds.get(socket.id) || [];
+     
+     try {
+       const pageNumber = parseInt(page as string, 10);
+       const limitNumber = parseInt(limit as string, 10);
+       const skip = (pageNumber - 1) * limitNumber;
 
-    socket.on('requestMultiPriceProducts', async (data) => {
-      const { page = 1, limit = 20, searchTerm = '', selectedCategory = '' } = data;
-      const clientPriceIds = globalClientPriceIds.get(socket.id) || [];
-      
-      try {
-        const pageNumber = parseInt(page as string, 10);
-        const limitNumber = parseInt(limit as string, 10);
-        const skip = (pageNumber - 1) * limitNumber;
+       // Get active categories
+       const activeCategories = await Category.find({ active: true }).select('catId name').lean();
+       const activeCategoryIds = activeCategories.map(cat => cat.catId);
 
-        // Get active categories
-        const activeCategories = await Category.find({ active: true }).select('id').lean();
-        const activeCategoryIds = activeCategories.map(cat => Number(cat.id));
+       const query: any = { 
+         'categories.catId': { $in: activeCategoryIds },
+         ...(showAvailableOnly && { availablestock: { $gt: 0 } }),
+         ...(searchTerm && {
+           $or: [
+             { name: { $regex: searchTerm, $options: 'i' } },
+             { sku: { $regex: searchTerm, $options: 'i' } }
+           ]
+         }),
+         ...(selectedCategory && { 'categories.catId': selectedCategory })
+       };
 
-        const query: any = { 
-          availablestock: { $gt: 0 },
-          active: true,
-          categoryid: { $in: activeCategoryIds }
-        };
-    
-        if (searchTerm) {
-          query.$or = [
-            { name: { $regex: searchTerm, $options: 'i' } },
-            { sku: { $regex: searchTerm, $options: 'i' } }
-          ];
-        }
-    
-        if (selectedCategory) {
-          const categoryId = Number(selectedCategory);
-          if (!activeCategoryIds.includes(categoryId)) {
-            socket.emit('multiPriceProductsList', {
-              items: [],
-              totalItems: 0,
-              currentPage: pageNumber,
-              totalPages: 0,
-              priceIds: clientPriceIds
-            });
-            return;
-          }
-          query.categoryid = categoryId;
-        }
+       const products = await Price.aggregate<ProductWithPrices>([
+         {
+           $lookup: {
+             from: 'tbl_store_price_list',
+             localField: 'listPrice.priceId',
+             foreignField: 'priceId',
+             as: 'priceLists'
+           }
+         },
+         { $unwind: "$listPrice" },
+         { 
+           $match: { 
+             "listPrice.priceId": { $in: clientPriceIds },
+             "listPrice.price": { $gt: 0 }
+           }
+         },
+         { 
+           $group: {
+             _id: "$sku",
+             name: { $first: "$name" },
+             prices: { 
+               $push: {
+                 priceId: "$listPrice.priceId",
+                 priceName: "$listPrice.priceName",
+                 price: "$listPrice.price",
+                 updatedAt: "$listPrice.updatedAt"
+               }
+             },
+             validPriceCount: { $sum: 1 }
+           }
+         },
+         {
+           $match: {
+             validPriceCount: { $eq: clientPriceIds.length }
+           }
+         },
+         {
+           $project: {
+             _id: 0,
+             sku: "$_id",
+             name: 1,
+             prices: 1
+           }
+         },
+         { $sort: { sku: 1 } }
+       ]);
 
-        const products = await Price.aggregate<ProductWithPrices>([
-          // Stage 1: Unwind listPrice array
-          { $unwind: "$listPrice" },
-          // Stage 2: Match prices that belong to client's price IDs
-          { 
-            $match: { 
-              "listPrice.priceId": { $in: clientPriceIds },
-              "listPrice.price": { $gt: 0 } // เพิ่มเงื่อนไขราคาต้องมากกว่า 0
-            }
-          },
-          // Stage 3: Group back by SKU
-          { 
-            $group: {
-              _id: "$sku",
-              name: { $first: "$name" },
-              prices: { 
-                $push: {
-                  priceId: "$listPrice.priceId",
-                  priceName: "$listPrice.priceName",
-                  price: "$listPrice.price",
-                  updatedAt: "$listPrice.updatedAt"
-                }
-              },
-              // เพิ่มการนับจำนวนราคาที่มีค่ามากกว่า 0
-              validPriceCount: { 
-                $sum: 1
-              }
-            }
-          },
-          // Stage 4: ตรวจสอบว่ามีราคาครบทุก price level ที่ client ต้องการ
-          {
-            $match: {
-              validPriceCount: { $eq: clientPriceIds.length }
-            }
-          },
-          // Stage 5: Project final fields
-          {
-            $project: {
-              _id: 0,
-              sku: "$_id",
-              name: 1,
-              prices: 1
-            }
-          },
-          { $sort: { sku: 1 } },
-        ]);
+       const productSkus = products.map(p => p.sku);
+       const productDetails = await Product.find({ sku: { $in: productSkus }, ...query })
+         .select('sku stock availablestock categories imagepath')
+         .lean();
 
-        const productSkus = products.map(p => p.sku);
-        const productDetails = await Product.find({ sku: { $in: productSkus }, ...query })
-          .select('sku id stock availablestock category categoryid imagepath')
-          .lean();
-        const productMap = new Map(productDetails.map(product => [product.sku, product]));
+       const productMap = new Map(productDetails.map(product => [product.sku, product]));
 
-        const result = products
-          .map(product => {
-            const additionalDetails = productMap.get(product.sku);
-            if (additionalDetails && 
-                typeof additionalDetails.categoryid === 'number' && 
-                activeCategoryIds.includes(additionalDetails.categoryid)) {
-                
-              const sortedPrices = [...product.prices].sort((a: PriceItem, b: PriceItem) => {
-                const orderA = clientPriceIds.indexOf(a.priceId);
-                const orderB = clientPriceIds.indexOf(b.priceId);
-                return orderA - orderB;
-              });
+       const result = products
+         .map(product => {
+           const additionalDetails = productMap.get(product.sku);
+           if (!additionalDetails) return null;
 
-              return {
-                ...product,
-                ...additionalDetails,
-                prices: sortedPrices,
-                stock: additionalDetails.stock ?? 0,
-                availablestock: additionalDetails.availablestock ?? 0,
-                id: additionalDetails.id ?? '',
-                categoryid: additionalDetails.categoryid,
-                category: additionalDetails.category ?? '',
-                imagepath: additionalDetails.imagepath ?? ''
-              };
-            }
-            return null;
-          })
-          .filter((product): product is NonNullable<typeof product> => product !== null);
+           const sortedPrices = [...product.prices].sort((a, b) => {
+            const priceA = config?.saleModel.listPrice.find(p => p.id === a.priceId);
+            const priceB = config?.saleModel.listPrice.find(p => p.id === b.priceId); 
+            return (priceB?.minPurchase || 0) - (priceA?.minPurchase || 0);
+          });
 
-        const totalItems = result.length;
-        const paginatedResult = result.slice(skip, skip + limitNumber);
+           return {
+             ...product,
+             ...additionalDetails,
+             prices: sortedPrices,
+             stock: additionalDetails.stock ?? 0,
+             availablestock: additionalDetails.availablestock ?? 0,
+             imagepath: additionalDetails.imagepath ?? ''
+           };
+         })
+         .filter((product): product is NonNullable<typeof product> => product !== null);
 
-        socket.emit('multiPriceProductsList', {
-          items: paginatedResult,
-          totalItems,
-          currentPage: pageNumber,
-          totalPages: Math.ceil(totalItems / limitNumber),
-          priceIds: clientPriceIds
-        });
-      } catch (error) {
-        console.error('Error fetching multi-price products for socket:', error);
-        socket.emit('error', { message: 'Error fetching multi-price products' });
-      }
-    });
+       const totalItems = result.length;
+       const paginatedResult = result.slice(skip, skip + limitNumber);
 
-    socket.on('disconnect', () => {
-      console.log(`Client ${socket.id} disconnected`);
-      globalClientPriceIds.delete(socket.id);
-    });
-  });
+       socket.emit('multiPriceProductsList', {
+         items: paginatedResult,
+         totalItems,
+         currentPage: pageNumber,
+         totalPages: Math.ceil(totalItems / limitNumber),
+         priceIds: clientPriceIds
+       });
+
+     } catch (error) {
+       console.error('Error fetching multi-price products:', error);
+       socket.emit('error', { message: 'Error fetching products' });
+     }
+   });
+
+   socket.on('disconnect', () => {
+     globalClientPriceIds.delete(socket.id);
+   });
+ });
 };
 
 export const emitMultiPriceProductUpdate = async (io: SocketIOServer, updatedProduct: IProduct) => {
-  try {
-    // Check if product's category is active using categoryid
-    const category = await Category.findOne({ 
-      id: String(updatedProduct.categoryid),
-      active: true 
-    }).lean();
+ try {
+   const category = updatedProduct.categories[0];
+   if (!category) return;
 
-    if (!category) {
-      return; // Don't emit update if category is not found or not active
-    }
+   const priceData = await Price.findOne({ sku: updatedProduct.sku }).lean();
+   const activePriceLists = await PriceList.find({ status: true });
+   const activePriceIds = activePriceLists.map(p => p.priceId);
+   
+   io.sockets.sockets.forEach((socket: Socket) => {
+     const clientPriceIds = globalClientPriceIds.get(socket.id) || [];
+     
+     const prices = (priceData?.listPrice || [])
+       .filter(p => clientPriceIds.includes(p.priceId) && activePriceIds.includes(p.priceId))
+       .sort((a, b) => clientPriceIds.indexOf(a.priceId) - clientPriceIds.indexOf(b.priceId))
+       .map(p => ({
+         priceId: p.priceId,
+         priceName: p.priceName,
+         price: p.price,
+         updatedAt: p.updatedAt
+       }));
 
-    const priceData = await Price.findOne({ sku: updatedProduct.sku }).lean().exec();
-    
-    io.sockets.sockets.forEach((socket: Socket) => {
-      const clientPriceIds = globalClientPriceIds.get(socket.id) || [];
-      
-      // Filter and sort prices based on clientPriceIds order
-      const prices = (priceData?.listPrice || [])
-        .filter(p => clientPriceIds.includes(p.priceId))
-        .sort((a, b) => {
-          const orderA = clientPriceIds.indexOf(a.priceId);
-          const orderB = clientPriceIds.indexOf(b.priceId);
-          return orderA - orderB;
-        });
+     const productUpdate = {
+       _id: updatedProduct._id,
+       name: updatedProduct.name,
+       sku: updatedProduct.sku,
+       stock: updatedProduct.stock,
+       availablestock: updatedProduct.availablestock,
+       imagepath: updatedProduct.imagepath,
+       categories: updatedProduct.categories,
+       active: updatedProduct.active,
+       prices
+     };
 
-      const productUpdate = {
-        _id: updatedProduct._id,
-        id: updatedProduct.id ?? '',
-        name: updatedProduct.name,
-        sku: updatedProduct.sku,
-        stock: updatedProduct.stock ?? 0,
-        availablestock: updatedProduct.availablestock ?? 0,
-        imagepath: updatedProduct.imagepath ?? '',
-        categoryid: updatedProduct.categoryid,
-        category: updatedProduct.category ?? '',
-        active: updatedProduct.active,
-        prices: prices.map(p => ({
-          priceId: p.priceId,
-          priceName: p.priceName,
-          price: p.price,
-          updatedAt: p.updatedAt
-        }))
-      };
-
-      socket.emit('multiPriceProductUpdate', productUpdate);
-    });
-  } catch (error) {
-    console.error('Error fetching price data for product update:', error);
-    io.emit('multiPriceProductUpdate', {
-      ...updatedProduct,
-      prices: []
-    });
-  }
+     socket.emit('multiPriceProductUpdate', productUpdate);
+   });
+ } catch (error) {
+   console.error('Error in product update:', error);
+   io.emit('multiPriceProductUpdate', { ...updatedProduct, prices: [] });
+ }
 };

@@ -10,6 +10,12 @@ export interface ILineNotification {
   NOTIFY_ENABLED: boolean;
 }
 
+export interface ITelegramNotification {
+  TELEGRAM_BOT_TOKEN: string;
+  TELEGRAM_CHAT_ID: string;
+  TELEGRAM_ENABLED: boolean;
+}
+
 export interface ILineMessage {
   CHANNEL_ACCESS_TOKEN: string;
   CHANNEL_SECRET: string;
@@ -52,13 +58,32 @@ export interface IShippingCost {
   special: ISpecialShipping;
 }
 
+// เพิ่ม interface สำหรับ slider
+export interface ISliderImage {
+  id: string;
+  url: string;
+  order: number;
+}
+
+// เพิ่ม interface สำหรับการแสดงผล
+export interface IDisplayConfig {
+  logo?: string;
+  sliders: ISliderImage[];
+  primaryColor: string;
+  isProtected: boolean; // เพิ่มส่วนนี้
+  shopName?: string; // Allow undefined
+  shopSlogan?: string; // Allow undefined
+}
+
 export interface IConfig {
   lineLogin: ILineLogin;
   lineNotification: ILineNotification;
+  telegramNotification: ITelegramNotification;
   lineMessage: ILineMessage;
   slipOK: ISlipOK;
   saleModel: ISaleModel;
   shippingCost: IShippingCost;
+  displayConfig: IDisplayConfig;
 }
 
 export interface IConfigDocument extends IConfig, Document {
@@ -106,6 +131,12 @@ const lineNotificationSchema = new Schema<ILineNotification>({
   NOTIFY_ENABLED: { type: Boolean, default: false },
 }, { _id: false });
 
+const telegramNotificationSchema = new Schema<ITelegramNotification>({
+  TELEGRAM_BOT_TOKEN: { type: String, default: '' },
+  TELEGRAM_CHAT_ID: { type: String, default: '' },
+  TELEGRAM_ENABLED: { type: Boolean, default: false },
+}, { _id: false });
+
 const lineMessageSchema = new Schema<ILineMessage>({
   CHANNEL_ACCESS_TOKEN: { type: String, default: '' },
   CHANNEL_SECRET: { type: String, default: '' },
@@ -119,13 +150,31 @@ const slipOKSchema = new Schema<ISlipOK>({
   qr_image: { type: String } // เพิ่มฟิลด์
 }, { _id: false });
 
+// สร้าง schema สำหรับ slider
+const sliderImageSchema = new Schema<ISliderImage>({
+  id: { type: String, required: true },
+  url: { type: String, required: true },
+}, { _id: false });
+
+// สร้าง schema สำหรับการแสดงผล
+const displayConfigSchema = new Schema<IDisplayConfig>({
+  logo: { type: String },
+  sliders: { type: [sliderImageSchema], default: [] },
+  primaryColor: { type: String, default: '#000000' },
+  isProtected: { type: Boolean, default: false } ,
+  shopName: { type: String, default: '' },
+  shopSlogan: { type: String, default: '' },
+}, { _id: false });
+
 const configSchema = new Schema<IConfigDocument>({
   lineLogin: { type: lineLoginSchema, default: () => ({}) },
   lineNotification: { type: lineNotificationSchema, default: () => ({}) },
+  telegramNotification: { type: telegramNotificationSchema, default: () => ({}) },
   lineMessage: { type: lineMessageSchema, default: () => ({}) },
   slipOK: { type: slipOKSchema, default: () => ({}) },
   saleModel: { type: saleModelSchema, default: () => ({}) },
   shippingCost: { type: shippingCostSchema, default: () => ({}) },
+  displayConfig: { type: displayConfigSchema, default: () => ({}) },
 }, { 
   timestamps: true,
   collection: 'tbl_store_config'

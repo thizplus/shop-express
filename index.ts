@@ -11,7 +11,6 @@ import productRoutes from './routes/productRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import priceRoutes from './routes/priceRoutes';
 import multiplePriceRoutes from './routes/multiplePriceRoutes';
-import zortoutRoutes from './routes/zortoutRoutes';
 import wholesaleRoutes from './routes/wholesaleRoutes';
 import storeRoutes from './routes/storeRoutes';
 import lineLoginRoutes from './routes/lineLoginRoutes';
@@ -19,6 +18,8 @@ import shippingRoutes from './routes/shippingRoutes';
 import orderRoutes from './routes/orderRoutes';
 import slipOKRoutes from './routes/slipOKRoutes';
 import clientRoutes from './routes/clientRoutes';
+import couponRoutes from './routes/couponRoutes';
+import pointRoutes from './routes/pointRoutes';
 
 // Socket controller imports
 import { setupWholesaleProductSocket } from './controllers/wholesale/wholesaleProductController';
@@ -27,6 +28,11 @@ import { setupMultiPriceProductSocket } from './controllers/wholesale/getProduct
 // Order Scheduler imports
 import { OrderScheduler } from './service/orderScheduler';
 import { schedulerLogger } from './service/logger';
+import priceListRoutes from './routes/priceListRoutes';
+import shopRoutes from './routes/shopRoutes';
+import warehouseRoutes from './routes/warehouseRoutes';
+
+import dailyPaymentRoutes from './routes/dailyPaymentRoutes';
 
 dotenv.config();
 
@@ -68,19 +74,32 @@ mongoose.connect(process.env.MONGODB_URI as string)
   });
 
 // Routes
+
+
+
 app.use('/api/users', userRoutes);
+app.use('/api/shops', shopRoutes);
+
 app.use('/api/products', productRoutes);
 app.use('/api/category', categoryRoutes);
+
+app.use('/api/price-list/', priceListRoutes);
 app.use('/api/store/prices', priceRoutes);
+
+
 app.use('/api/store/prices/multiple', multiplePriceRoutes);
 app.use('/api/store', storeRoutes);
-app.use('/api/zort', zortoutRoutes);
+app.use('/api/warehouse', warehouseRoutes);
 app.use('/api/wholesale', wholesaleRoutes);
 app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/line', lineLoginRoutes);
 app.use('/api/slipOK', slipOKRoutes);
 app.use('/api/clients', clientRoutes);
+app.use('/api/coupons', couponRoutes);
+app.use('/api/points', pointRoutes);
+
+app.use('/api/daily-payment', dailyPaymentRoutes);
 
 // Setup Socket.IO for wholesale
 setupWholesaleProductSocket(io);

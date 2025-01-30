@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import multer from 'multer';
-import uploadImageToFirebase from '../../functions/uploadSlipToFirebase';
+import uploadImageToSpaces from '../../functions/uploadImageToSpaces';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -33,7 +33,7 @@ export const uploadSlip = async (req: Request, res: Response) => {
     }
 
     try {
-      const downloadURL = await uploadImageToFirebase(req.file, 'slips');
+      const downloadURL = await uploadImageToSpaces(req.file, 'slips');
       
       if (downloadURL) {
         res.status(200).json({ message: 'File uploaded successfully', url: downloadURL });

@@ -31,6 +31,7 @@ COPY --from=builder /app/controllers ./controllers
 COPY --from=builder /app/functions ./functions
 COPY --from=builder /app/models ./models
 COPY --from=builder /app/routes ./routes
+COPY --from=builder /app/service ./service
 
 EXPOSE 8000
 

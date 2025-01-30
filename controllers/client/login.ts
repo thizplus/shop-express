@@ -53,7 +53,7 @@ export const verifyProfile = async (req: Request, res: Response) => {
         }
       }
       await client.save();
-      console.log('Updated/Created client:', client);
+     // console.log('Updated/Created client:', client);
 
       return res.json({
         userId: client.userId,

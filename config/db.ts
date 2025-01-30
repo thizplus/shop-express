@@ -12,7 +12,7 @@ export async function connectDB(): Promise<MongoClient> {
       deprecationErrors: true,
     }
   });
-
+ 
   try {
     await client.connect();
     console.log("Connected to MongoDB Atlas!");

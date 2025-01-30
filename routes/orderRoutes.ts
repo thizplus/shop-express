@@ -3,8 +3,12 @@ import { createOrder, getOrderById, getOrders, updatePaymentStatus } from '../co
 import { getAdminOrders, searchOrders } from '../controllers/order/getOrders';
 import { getLatestPendingOrder, getPendingOrders } from '../controllers/order/getPendingOrders';
 import { getOrderReport } from '../controllers/order/getOrderReport';
+import { updateGrabPayment } from '../controllers/order/updateGrabPayment';
+import { syncOrderFromWarehouse } from '../controllers/order/syncOrderController';
 
 const router = express.Router();
+
+router.post('/sync', syncOrderFromWarehouse);
 
 // สร้าง Order ใหม่
 router.post('/create', createOrder);
@@ -17,6 +21,9 @@ router.get('/', getOrders);
 
 // อัปเดตสถานะการชำระเงิน
 router.put('/:orderId/payment', updatePaymentStatus);
+
+// อัปเดตการเรียกเก็บเงิน grab
+router.put('/:orderId/grab-payment', updateGrabPayment);
 
 
 // Routes ใหม่

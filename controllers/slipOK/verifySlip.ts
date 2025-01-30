@@ -13,7 +13,7 @@ export const verifySlip = async (req: Request, res: Response) => {
   try {
     const verifyData = {
       url,
-      log: true
+     // log: true
     };
 
     console.log('Sending request to SlipOK API:', {

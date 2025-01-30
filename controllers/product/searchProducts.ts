@@ -225,3 +225,29 @@ export const searchProductsWithSort = async (req: Request, res: Response) => {
     });
   }
 };
+
+
+export const clientSearchProducts = async (req: Request, res: Response) => {
+  try {
+    const { q } = req.query;
+    
+    if (!q) {
+      return res.json([]);
+    }
+
+    const products = await Product.find({
+      $or: [
+        { sku: { $regex: q, $options: 'i' } },
+        { name: { $regex: q, $options: 'i' } }
+      ]
+    })
+    .select('sku name availablestock')
+    .limit(10)
+    .lean();
+
+    res.json(products);
+  } catch (error) {
+    console.error('Error searching products:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};

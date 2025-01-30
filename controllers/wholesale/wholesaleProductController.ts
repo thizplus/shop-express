@@ -3,24 +3,22 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import Product, { IProduct } from '../../models/productModel';
 import Price, { IPrice } from '../../models/priceModel';
 import Category from '../../models/categoryModel';
+import PriceList from '../../models/priceListModel';
 
 // Global map to store clientPriceIds
 const globalClientPriceIds = new Map<string, string>();
 
+
 export const getWholesaleProducts = async (req: Request, res: Response) => {
   try {
-    const page: number = parseInt(req.query.page as string) || 1;
-    const limit: number = parseInt(req.query.limit as string) || 20;
-    const skip: number = (page - 1) * limit;
-    const searchTerm: string = req.query.searchTerm as string || '';
-    const selectedCategory: string = req.query.selectedCategory as string || '';
-    const priceId: string = req.query.priceId as string || '';
+    const { page = 1, limit = 20, searchTerm = '', selectedCategory = '', priceId = '' } = req.query;
+    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+    
+    // Get active categories with new schema
+    const activeCategories = await Category.find({ active: true }).select('catId').lean();
+    const activeCategoryIds = activeCategories.map(cat => cat.catId);
 
-    // Get active categories
-    const activeCategories = await Category.find({ active: true }).select('id').lean();
-    const activeCategoryIds = activeCategories.map(cat => Number(cat.id));
-
-    // First, get all SKUs with non-zero prices for the specified priceId
+    // Get valid SKUs
     const validPrices = await Price.find({
       'listPrice': {
         $elemMatch: {
@@ -35,8 +33,8 @@ export const getWholesaleProducts = async (req: Request, res: Response) => {
     const query: any = { 
       availablestock: { $gt: 0 },
       active: true,
-      categoryid: { $in: activeCategoryIds },
-      sku: { $in: validSkus } // Add SKU filter
+      'categories.catId': { $in: activeCategoryIds }, // Updated to match new schema
+      sku: { $in: validSkus }
     };
 
     if (searchTerm) {
@@ -47,28 +45,17 @@ export const getWholesaleProducts = async (req: Request, res: Response) => {
     }
 
     if (selectedCategory) {
-      const categoryId = Number(selectedCategory);
-      if (!activeCategoryIds.includes(categoryId)) {
-        return res.json({
-          items: [],
-          currentPage: page,
-          totalPages: 0,
-          totalItems: 0
-        });
-      }
-      query.categoryid = categoryId;
+      query['categories.catId'] = selectedCategory; // Updated to match new schema
     }
 
-    const totalItems: number = await Product.countDocuments(query);
-
-    const items: IProduct[] = await Product.find(query)
+    const totalItems = await Product.countDocuments(query);
+    const items = await Product.find(query)
       .skip(skip)
-      .limit(limit)
-      .lean()
-      .exec();
+      .limit(parseInt(limit as string))
+      .lean();
 
     const skus = items.map(item => item.sku);
-    const prices: IPrice[] = await Price.find({ 
+    const prices = await Price.find({ 
       sku: { $in: skus },
       'listPrice': {
         $elemMatch: {
@@ -76,50 +63,64 @@ export const getWholesaleProducts = async (req: Request, res: Response) => {
           'price': { $gt: 0 }
         }
       }
-    }).lean().exec();
+    }).lean();
 
     const itemsWithPrices = items.map(item => {
       const priceData = prices.find(p => p.sku === item.sku);
       const selectedPrice = priceData?.listPrice?.find(p => p.priceId === priceId);
-      const price = selectedPrice?.price || 0;
-      return { ...item, price };
+      return { ...item, price: selectedPrice?.price || 0 };
     });
 
     res.json({
       items: itemsWithPrices,
-      currentPage: page,
-      totalPages: Math.ceil(totalItems / limit),
+      currentPage: parseInt(page as string),
+      totalPages: Math.ceil(totalItems / parseInt(limit as string)),
       totalItems
     });
   } catch (error) {
-    console.error('Error fetching wholesale products:', error);
+    console.error('Error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
 
+
 export const setupWholesaleProductSocket = (io: SocketIOServer) => {
   const wholesaleNamespace = io.of('/wholesale');
-
-  wholesaleNamespace.on('connection', (socket: Socket) => {
+ 
+  wholesaleNamespace.on('connection', async (socket: Socket) => {
     console.log('Client connected to wholesale products namespace');
-
+ 
     const priceId = socket.handshake.query.priceId as string;
     if (priceId) {
-      globalClientPriceIds.set(socket.id, priceId);
-      console.log(`Client ${socket.id} connected with priceId: ${priceId}`);
+      // Verify price list is active
+      const activePriceList = await PriceList.findOne({ 
+        priceId,
+        status: true 
+      });
+      if (activePriceList) {
+        globalClientPriceIds.set(socket.id, priceId);
+        console.log(`Client ${socket.id} connected with priceId: ${priceId}`);
+      }
     }
-
+ 
     socket.on('requestWholesaleProducts', async (data) => {
-      const { page = 1, limit = 20, searchTerm = '', selectedCategory = '' } = data;
+      const { 
+        page = 1, 
+        limit = 20, 
+        searchTerm = '', 
+        selectedCategory = '',
+        showAvailableOnly = false
+      } = data;
       const clientPriceId = globalClientPriceIds.get(socket.id) || '';
       
       try {
-        const skip: number = (page - 1) * limit;
-
-        // Get active categories
-        const activeCategories = await Category.find({ active: true }).select('id').lean();
-        const activeCategoryIds = activeCategories.map(cat => Number(cat.id));
-
+        const skip = (page - 1) * limit;
+ 
+        // Get active categories with new schema
+        const activeCategories = await Category.find({ active: true }).select('catId').lean();
+        const activeCategoryIds = activeCategories.map(cat => cat.catId);
+        console.log('Active categories:', activeCategoryIds);
+ 
         // Get valid SKUs first
         const validPrices = await Price.find({
           'listPrice': {
@@ -129,15 +130,19 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
             }
           }
         }).select('sku').lean();
-
+ 
         const validSkus = validPrices.map(p => p.sku);
+        console.log('Valid SKUs:', validSkus);
         
         const query: any = { 
-          availablestock: { $gt: 0 },
-          active: true,
-          categoryid: { $in: activeCategoryIds },
+          'categories.catId': { $in: activeCategoryIds },
           sku: { $in: validSkus }
         };
+ 
+        if (showAvailableOnly) {
+          query.availablestock = { $gt: 0 };
+          query.active = true;
+        }
     
         if (searchTerm) {
           query.$or = [
@@ -147,29 +152,21 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
         }
     
         if (selectedCategory) {
-          const categoryId = Number(selectedCategory);
-          if (!activeCategoryIds.includes(categoryId)) {
-            socket.emit('wholesaleProductsList', {
-              items: [],
-              currentPage: page,
-              totalPages: 0,
-              totalItems: 0
-            });
-            return;
-          }
-          query.categoryid = categoryId;
+          query['categories.catId'] = selectedCategory;
         }
-
-        const totalItems: number = await Product.countDocuments(query);
-
-        const items: IProduct[] = await Product.find(query)
+ 
+        console.log('Product query:', JSON.stringify(query, null, 2));
+ 
+        const totalItems = await Product.countDocuments(query);
+        const items = await Product.find(query)
           .skip(skip)
           .limit(limit)
-          .lean()
-          .exec();
-
+          .lean();
+ 
+        console.log('Found products:', items.length);
+ 
         const skus = items.map(item => item.sku);
-        const prices: IPrice[] = await Price.find({ 
+        const prices = await Price.find({ 
           sku: { $in: skus },
           'listPrice': {
             $elemMatch: {
@@ -177,79 +174,72 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
               'price': { $gt: 0 }
             }
           }
-        }).lean().exec();
-
+        }).lean();
+ 
         const itemsWithPrices = items.map(item => {
           const priceData = prices.find(p => p.sku === item.sku);
           const selectedPrice = priceData?.listPrice?.find(p => p.priceId === clientPriceId);
-          const price = selectedPrice?.price || 0;
-          return { ...item, price };
+          return { ...item, price: selectedPrice?.price || 0 };
         });
     
         socket.emit('wholesaleProductsList', {
           items: itemsWithPrices,
-          currentPage: page,
+          currentPage: page,  
           totalPages: Math.ceil(totalItems / limit),
           totalItems
         });
+ 
       } catch (error) {
-        console.error('Error fetching wholesale products for socket:', error);
-        socket.emit('error', { message: 'Error fetching wholesale products' });
+        console.error('Error fetching products:', error);
+        socket.emit('error', { message: 'Error fetching products' });
       }
     });
-
+ 
     socket.on('disconnect', () => {
       console.log(`Client ${socket.id} disconnected`);
       globalClientPriceIds.delete(socket.id);
     });
   });
-
+ 
   return wholesaleNamespace;
-};
+ };
 
 // อัพเดท emitWholesaleProductUpdate เพื่อตรวจสอบราคาด้วย
 export const emitWholesaleProductUpdate = async (io: SocketIOServer, updatedProduct: IProduct) => {
   try {
-    // Check if product's category is active
+    // Check if product's category is active 
     const category = await Category.findOne({ 
-      id: String(updatedProduct.categoryid),
+      catId: updatedProduct.categories[0]?.catId,
       active: true 
     }).lean();
-
+ 
     if (!category) {
+      console.log('No active category found for product:', updatedProduct.sku);
       return;
     }
-
-    const priceData: IPrice | null = await Price.findOne({ 
+ 
+    const priceData = await Price.findOne({ 
       sku: updatedProduct.sku,
-      'listPrice.price': { $gt: 0 } // เพิ่มเงื่อนไขตรวจสอบราคา
-    }).lean().exec();
+      'listPrice.price': { $gt: 0 }
+    }).lean();
+ 
+    console.log('Price data found:', priceData);
     
     io.of('/wholesale').sockets.forEach((socket) => {
       const clientPriceId = globalClientPriceIds.get(socket.id);
       if (!clientPriceId) return;
-
+ 
       const selectedPrice = priceData?.listPrice?.find(p => p.priceId === clientPriceId);
-      // ส่งอัพเดทเฉพาะเมื่อมีราคามากกว่า 0
-      if (selectedPrice && selectedPrice.price > 0) {
+      if (selectedPrice?.price && selectedPrice.price > 0) {
         const productUpdate = {
-          _id: updatedProduct._id,
-          id: updatedProduct.id,
-          name: updatedProduct.name,
-          sku: updatedProduct.sku,
-          stock: updatedProduct.stock ?? 0,
-          availablestock: updatedProduct.availablestock ?? 0,
-          imagepath: updatedProduct.imagepath ?? '',
-          categoryid: updatedProduct.categoryid,
-          category: updatedProduct.category,
-          active: updatedProduct.active,
+          ...updatedProduct,
           price: selectedPrice.price
         };
-
+ 
         socket.emit('wholesaleProductUpdate', productUpdate);
       }
     });
   } catch (error) {
-    console.error('Error fetching price data for product update:', error);
+    console.error('Error in product update:', error);
   }
-};
+ };
