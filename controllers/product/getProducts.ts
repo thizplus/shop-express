@@ -1,11 +1,63 @@
+// controllers/product/getProducts.ts
 import { Request, Response } from 'express';
 import Product, { IProduct } from '../../models/productModel';
 import { IListPrice } from '../../models/priceModel';
 import { PipelineStage } from 'mongoose';
+import axios from 'axios';
+
+interface WarehousePriceResponse {
+  items: {
+    sku: string;
+    listPrice: {
+      priceId: string;
+      priceName: string;
+      price: number;
+    }[];
+  }[];
+  totalItems: number;
+  currentPage: number;
+  totalPages: number;
+}
 
 export interface ProductWithPrice extends Omit<IProduct, '_id'> {
   _id: string;
   listPrice?: IListPrice[];
+  warehousePrice?: {
+    listPrice: {
+      priceId: string;
+      priceName: string;
+      price: number;
+    }[];
+  };
+}
+
+async function fetchWarehousePrices(): Promise<WarehousePriceResponse | null> {
+  try {
+    const warehouseUrl = process.env.STORE_API_URL;
+    const shopCode = process.env.SHOP_NAME;
+    
+    if (!warehouseUrl || !shopCode) {
+      console.error('Missing STORE_API_URL or SHOP_NAME in environment variables');
+      return null;
+    }
+
+    const response = await axios.get<WarehousePriceResponse>(
+      `${warehouseUrl}/api/shops/${shopCode}/products`
+    );
+    
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      console.error('Error fetching warehouse prices:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+    } else {
+      console.error('Error fetching warehouse prices:', error);
+    }
+    return null;
+  }
 }
 
 export const getProducts = async (req: Request, res: Response) => {
@@ -14,8 +66,11 @@ export const getProducts = async (req: Request, res: Response) => {
     const limit: number = parseInt(req.query.limit as string) || 20;
     const skip: number = (page - 1) * limit;
 
+    // 1. ดึงข้อมูลราคาจากคลังสินค้า
+    const warehousePrices = await fetchWarehousePrices();
+
+    // 2. ดึงข้อมูลสินค้าและราคาของร้านค้า
     const aggregationPipeline: PipelineStage[] = [
-      // Stage 1: Join with price data
       {
         $lookup: {
           from: 'tbl_store_price',
@@ -24,14 +79,12 @@ export const getProducts = async (req: Request, res: Response) => {
           as: 'priceData'
         }
       },
-      // Stage 2: Unwind price data
       {
         $unwind: {
           path: '$priceData',
           preserveNullAndEmptyArrays: true
         }
       },
-      // Stage 3: Project the fields we want
       {
         $project: {
           _id: 1,
@@ -42,7 +95,6 @@ export const getProducts = async (req: Request, res: Response) => {
           availablestock: 1,
           imagepath: 1,
           categories: 1,
-
           active: 1,
           createdAt: 1,
           updatedAt: 1,
@@ -55,14 +107,12 @@ export const getProducts = async (req: Request, res: Response) => {
           }
         }
       },
-      // Stage 4: Sort by active and sku
       { 
         $sort: {
           active: -1,
           sku: 1
         }
       } as PipelineStage.Sort,
-      // Stage 5: Facet for pagination
       {
         $facet: {
           metadata: [{ $count: "totalItems" }],
@@ -75,18 +125,19 @@ export const getProducts = async (req: Request, res: Response) => {
     ];
 
     const result = await Product.aggregate(aggregationPipeline);
-    
-    // Extract pagination data
     const totalItems = result[0].metadata[0]?.totalItems || 0;
     const items = result[0].items as ProductWithPrice[];
 
-    // Add default empty listPrice array if not present
-    const formattedItems = items.map(item => ({
-      ...item,
-      listPrice: item.listPrice || []
-    }));
+    // 3. รวมข้อมูลสินค้า ราคาร้านค้า และราคาคลังสินค้า
+    const formattedItems = items.map(item => {
+      const warehousePrice = warehousePrices?.items.find(p => p.sku === item.sku);
+      return {
+        ...item,
+        listPrice: item.listPrice || [], // ราคาของร้านค้า
+        warehousePrice: warehousePrice || null // ราคาจากคลังสินค้า
+      };
+    });
 
-    // Return the response
     res.json({
       items: formattedItems,
       currentPage: page,
@@ -102,4 +153,3 @@ export const getProducts = async (req: Request, res: Response) => {
     });
   }
 };
-
