@@ -1,3 +1,5 @@
+//controller/syncController.ts
+
 import { Request, Response } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import Product, { IProduct } from '../../models/productModel';
@@ -9,7 +11,7 @@ import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductControl
 
 interface SyncRequest {
   product: Omit<IProduct, '_id'> & { _id: string };
-  action: 'create' | 'update' | 'delete' | 'po_confirm' | 'move_stock'| 'order_create' | 'order_void';
+  action: 'create' | 'update' | 'delete' | 'po_confirm' | 'move_stock'| 'order_create' | 'order_void'| 'status_update';
   source: string;
 }
 
@@ -42,6 +44,9 @@ const handleStockUpdate = async (product: any, io: SocketIOServer | undefined) =
   
   return updatedProduct;
  };
+
+
+
 
 export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>, res: Response) => {
   try {
@@ -115,6 +120,20 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
         await handleStockUpdate(product, io);
         break;
       }
+
+      case 'status_update': {
+        // อัพเดทสถานะสินค้า
+        const result = await Product.findOneAndUpdate(
+          { sku: product.sku },
+          { active: product.active },
+          { new: true }
+        ).lean();
+
+        console.log('Product update status:', result?.sku);
+      
+        break;
+      }
+
     }
 
     res.json({ 

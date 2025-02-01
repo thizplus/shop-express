@@ -14,9 +14,7 @@ interface WarehousePriceResponse {
       price: number;
     }[];
   }[];
-  totalItems: number;
-  currentPage: number;
-  totalPages: number;
+  allowedPriceIds: string[];
 }
 
 export interface ProductWithPrice extends Omit<IProduct, '_id'> {
@@ -31,7 +29,7 @@ export interface ProductWithPrice extends Omit<IProduct, '_id'> {
   };
 }
 
-async function fetchWarehousePrices(): Promise<WarehousePriceResponse | null> {
+async function fetchWarehousePrices(skus: string[]): Promise<WarehousePriceResponse | null> {
   try {
     const warehouseUrl = process.env.STORE_API_URL;
     const shopCode = process.env.SHOP_NAME;
@@ -42,7 +40,10 @@ async function fetchWarehousePrices(): Promise<WarehousePriceResponse | null> {
     }
 
     const response = await axios.get<WarehousePriceResponse>(
-      `${warehouseUrl}/api/shops/${shopCode}/products`
+      `${warehouseUrl}/api/shops/${shopCode}/products/prices`,
+      {
+        params: { skus: skus.join(',') }
+      }
     );
     
     return response.data;
@@ -66,10 +67,7 @@ export const getProducts = async (req: Request, res: Response) => {
     const limit: number = parseInt(req.query.limit as string) || 20;
     const skip: number = (page - 1) * limit;
 
-    // 1. ดึงข้อมูลราคาจากคลังสินค้า
-    const warehousePrices = await fetchWarehousePrices();
-
-    // 2. ดึงข้อมูลสินค้าและราคาของร้านค้า
+    // 1. ดึงข้อมูลสินค้าและราคาของร้านค้าก่อน
     const aggregationPipeline: PipelineStage[] = [
       {
         $lookup: {
@@ -112,7 +110,7 @@ export const getProducts = async (req: Request, res: Response) => {
           active: -1,
           sku: 1
         }
-      } as PipelineStage.Sort,
+      },
       {
         $facet: {
           metadata: [{ $count: "totalItems" }],
@@ -125,24 +123,26 @@ export const getProducts = async (req: Request, res: Response) => {
     ];
 
     const result = await Product.aggregate(aggregationPipeline);
-    const totalItems = result[0].metadata[0]?.totalItems || 0;
     const items = result[0].items as ProductWithPrice[];
+    const totalItems = result[0].metadata[0]?.totalItems || 0;
+
+    // 2. ดึงข้อมูลราคาจากคลังสินค้าเฉพาะ SKUs ในหน้าปัจจุบัน
+    const skus = items.map(item => item.sku);
+    const warehousePrices = await fetchWarehousePrices(skus);
 
     // 3. รวมข้อมูลสินค้า ราคาร้านค้า และราคาคลังสินค้า
-    const formattedItems = items.map(item => {
-      const warehousePrice = warehousePrices?.items.find(p => p.sku === item.sku);
-      return {
-        ...item,
-        listPrice: item.listPrice || [], // ราคาของร้านค้า
-        warehousePrice: warehousePrice || null // ราคาจากคลังสินค้า
-      };
-    });
+    const formattedItems = items.map(item => ({
+      ...item,
+      listPrice: item.listPrice || [],
+      warehousePrice: warehousePrices?.items.find(p => p.sku === item.sku) || null
+    }));
 
     res.json({
       items: formattedItems,
       currentPage: page,
       totalPages: Math.ceil(totalItems / limit),
-      totalItems
+      totalItems,
+      warehousePricesStatus: warehousePrices ? 'success' : 'error' // เพิ่ม status เพื่อ debug
     });
 
   } catch (error) {
