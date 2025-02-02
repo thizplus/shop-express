@@ -1,8 +1,9 @@
-// services/warehousePriceService.ts
+// service/warehouseUtils.ts
+
 import axios from 'axios';
 import dotenv from 'dotenv';
-dotenv.config();
 
+dotenv.config();
 
 interface WarehousePriceResponse {
   items: {
@@ -13,12 +14,10 @@ interface WarehousePriceResponse {
       price: number;
     }[];
   }[];
-  totalItems: number;
-  currentPage: number;
-  totalPages: number;
+  allowedPriceIds: string[];
 }
 
-export const fetchWarehousePrices = async (): Promise<WarehousePriceResponse | null> => {
+export async function fetchWarehousePrices(skus: string[]): Promise<WarehousePriceResponse | null> {
   try {
     const warehouseUrl = process.env.STORE_API_URL;
     const shopCode = process.env.SHOP_NAME;
@@ -28,17 +27,17 @@ export const fetchWarehousePrices = async (): Promise<WarehousePriceResponse | n
       return null;
     }
 
-    console.log(`Fetching warehouse prices from: ${warehouseUrl}/api/shops/${shopCode}/products`);
-
     const response = await axios.get<WarehousePriceResponse>(
-      `${warehouseUrl}/api/shops/${shopCode}/products`
+      `${warehouseUrl}/api/shops/${shopCode}/products/prices`,
+      {
+        params: { skus: skus.join(',') }
+      }
     );
     
-    console.log('Warehouse response:', response.data);
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      console.error('Axios error fetching warehouse prices:', {
+      console.error('Error fetching warehouse prices:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status
@@ -48,4 +47,4 @@ export const fetchWarehousePrices = async (): Promise<WarehousePriceResponse | n
     }
     return null;
   }
-};
+}

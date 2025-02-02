@@ -3,19 +3,7 @@ import { Request, Response } from 'express';
 import Product, { IProduct } from '../../models/productModel';
 import { IListPrice } from '../../models/priceModel';
 import { PipelineStage } from 'mongoose';
-import axios from 'axios';
-
-interface WarehousePriceResponse {
-  items: {
-    sku: string;
-    listPrice: {
-      priceId: string;
-      priceName: string;
-      price: number;
-    }[];
-  }[];
-  allowedPriceIds: string[];
-}
+import { fetchWarehousePrices } from '../../service/warehousePriceService';
 
 export interface ProductWithPrice extends Omit<IProduct, '_id'> {
   _id: string;
@@ -29,37 +17,6 @@ export interface ProductWithPrice extends Omit<IProduct, '_id'> {
   };
 }
 
-async function fetchWarehousePrices(skus: string[]): Promise<WarehousePriceResponse | null> {
-  try {
-    const warehouseUrl = process.env.STORE_API_URL;
-    const shopCode = process.env.SHOP_NAME;
-    
-    if (!warehouseUrl || !shopCode) {
-      console.error('Missing STORE_API_URL or SHOP_NAME in environment variables');
-      return null;
-    }
-
-    const response = await axios.get<WarehousePriceResponse>(
-      `${warehouseUrl}/api/shops/${shopCode}/products/prices`,
-      {
-        params: { skus: skus.join(',') }
-      }
-    );
-    
-    return response.data;
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error('Error fetching warehouse prices:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      });
-    } else {
-      console.error('Error fetching warehouse prices:', error);
-    }
-    return null;
-  }
-}
 
 export const getProducts = async (req: Request, res: Response) => {
   try {
@@ -67,7 +24,7 @@ export const getProducts = async (req: Request, res: Response) => {
     const limit: number = parseInt(req.query.limit as string) || 20;
     const skip: number = (page - 1) * limit;
 
-    // 1. ดึงข้อมูลสินค้าและราคาของร้านค้าก่อน
+    // 1. ดึงข้อมูลสินค้าและราคาของร้านค้า
     const aggregationPipeline: PipelineStage[] = [
       {
         $lookup: {
@@ -126,11 +83,11 @@ export const getProducts = async (req: Request, res: Response) => {
     const items = result[0].items as ProductWithPrice[];
     const totalItems = result[0].metadata[0]?.totalItems || 0;
 
-    // 2. ดึงข้อมูลราคาจากคลังสินค้าเฉพาะ SKUs ในหน้าปัจจุบัน
+    // 2. ดึงข้อมูลราคาจากคลังสินค้าผ่าน service
     const skus = items.map(item => item.sku);
     const warehousePrices = await fetchWarehousePrices(skus);
 
-    // 3. รวมข้อมูลสินค้า ราคาร้านค้า และราคาคลังสินค้า
+    // 3. รวมข้อมูลสินค้า
     const formattedItems = items.map(item => ({
       ...item,
       listPrice: item.listPrice || [],
@@ -142,7 +99,7 @@ export const getProducts = async (req: Request, res: Response) => {
       currentPage: page,
       totalPages: Math.ceil(totalItems / limit),
       totalItems,
-      warehousePricesStatus: warehousePrices ? 'success' : 'error' // เพิ่ม status เพื่อ debug
+      warehousePricesStatus: warehousePrices ? 'success' : 'error'
     });
 
   } catch (error) {
