@@ -8,6 +8,7 @@ import { updatePrice } from '../controllers/product/updatePrice';
 import { importProductsFromStore } from '../controllers/product/import';
 import { syncProductFromWarehouse } from '../controllers/product/syncController';
 import { updateProduct } from '../controllers/product/productController';
+import { bulkUpdateProduct } from '../controllers/product/bulkUpdateProduct';
 
 const router = express.Router();
 
@@ -20,6 +21,9 @@ router.get('/all', getProducts);
 router.get('/search', searchProducts);
 router.get('/client-search', clientSearchProducts); 
 router.patch('/update-status', updateProductStatus);
+
+router.put('/bulk-update', bulkUpdateProduct);
+
 router.patch('/update-price', updatePrice);
 
 router.post('/sync', syncProductFromWarehouse);
