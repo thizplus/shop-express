@@ -2,25 +2,64 @@ import { Request, Response } from 'express';
 import Order, { IOrder } from '../../models/orderModel';
 import { addPointFromOrder } from '../point/pointTransactionController';
 import PointSetting from '../../models/pointSettingModel'; 
+import mongoose from 'mongoose';
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const orderData: IOrder = req.body;
     
+    // ตรวจสอบว่ามี warehouseOrderId
+    if (!orderData.warehouseOrderId) {
+      throw new Error('warehouseOrderId is required');
+    }
+
+    // เช็คว่ามี order นี้อยู่แล้วหรือไม่
+    const existingOrder = await Order.findOne({
+      $or: [
+        { orderId: orderData.orderId },
+        { warehouseOrderId: orderData.warehouseOrderId }
+      ]
+    }).session(session);
+
+    if (existingOrder) {
+      throw new Error('Duplicate order found');
+    }
+
     // สร้าง Order ใหม่
-    const newOrder = new Order(orderData); 
+    const newOrder = new Order(orderData);
+    await newOrder.save({ session });
+
+    // Commit transaction
+    await session.commitTransaction();
     
-    // บันทึกลงในฐานข้อมูล
-    await newOrder.save();
-    
-    res.status(201).json({ message: 'Order created successfully', order: newOrder });
+    res.status(201).json({ 
+      success: true,
+      message: 'Order created successfully', 
+      order: newOrder 
+    });
+
   } catch (error: unknown) {
+    // Rollback transaction
+    await session.abortTransaction();
+
     console.error('Error creating order:', error);
     if (error instanceof Error) {
-      res.status(500).json({ message: 'Error creating order', error: error.message });
+      res.status(500).json({ 
+        success: false,
+        message: 'Error creating order', 
+        error: error.message 
+      });
     } else {
-      res.status(500).json({ message: 'An unknown error occurred while creating the order' });
+      res.status(500).json({ 
+        success: false,
+        message: 'An unknown error occurred while creating the order' 
+      });
     }
+  } finally {
+    session.endSession();
   }
 };
 

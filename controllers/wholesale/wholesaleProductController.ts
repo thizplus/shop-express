@@ -119,7 +119,7 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
         // Get active categories with new schema
         const activeCategories = await Category.find({ active: true }).select('catId').lean();
         const activeCategoryIds = activeCategories.map(cat => cat.catId);
-        console.log('Active categories:', activeCategoryIds);
+      //  console.log('Active categories:', activeCategoryIds);
  
         // Get valid SKUs first
         const validPrices = await Price.find({
@@ -132,7 +132,7 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
         }).select('sku').lean();
  
         const validSkus = validPrices.map(p => p.sku);
-        console.log('Valid SKUs:', validSkus);
+      //  console.log('Valid SKUs:', validSkus);
         
         const query: any = { 
           'categories.catId': { $in: activeCategoryIds },
@@ -155,7 +155,7 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
           query['categories.catId'] = selectedCategory;
         }
  
-        console.log('Product query:', JSON.stringify(query, null, 2));
+       // console.log('Product query:', JSON.stringify(query, null, 2));
  
         const totalItems = await Product.countDocuments(query);
         const items = await Product.find(query)
@@ -163,7 +163,7 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
           .limit(limit)
           .lean();
  
-        console.log('Found products:', items.length);
+        // console.log('Found products:', items.length);
  
         const skus = items.map(item => item.sku);
         const prices = await Price.find({ 

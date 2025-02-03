@@ -2,6 +2,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IOrder extends Document {
  orderId: string;
+ warehouseOrderId: string;  // เพิ่มเพื่อเก็บ reference ถึง order ในคลัง
  typeOrder: 'store' | 'shop';
  typeId: string;
  userId: string;
@@ -64,6 +65,7 @@ interface IGrabPayment {
 
 const OrderSchema: Schema = new Schema({
  orderId: { type: String, required: true, unique: true },
+ warehouseOrderId: { type: String, required: true }, // เพิ่ม field
  typeOrder: { type: String, enum: ['store', 'shop'], required: true },
  typeId: { type: String, required: true },
  userId: { type: String, required: true },
@@ -132,5 +134,7 @@ const OrderSchema: Schema = new Schema({
  timestamps: true,
  collection: 'tbl_orders'
 });
+
+OrderSchema.index({ warehouseOrderId: 1 });
 
 export default mongoose.model<IOrder>('Order', OrderSchema);

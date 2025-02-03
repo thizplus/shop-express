@@ -16,6 +16,7 @@ interface SyncRequest {
 }
 
 const handleStockUpdate = async (product: any, io: SocketIOServer | undefined) => {
+  
   console.log('handleStockUpdate called:', { 
     action: product.action,
     sku: product.sku, 
