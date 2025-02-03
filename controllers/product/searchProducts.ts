@@ -2,6 +2,7 @@
 // controllers/product/searchProducts.ts
 import { Request, Response } from 'express';
 import Product from '../../models/productModel';
+import Price from '../../models/priceModel';
 import type { PipelineStage } from 'mongoose';
 
 import { ProductWithPrice } from './getProducts';
@@ -114,6 +115,7 @@ export const searchProducts = async (req: Request, res: Response) => {
 
 
 
+// controllers/product/clientSearchProducts.ts
 export const clientSearchProducts = async (req: Request, res: Response) => {
   try {
     const { q } = req.query;
@@ -122,17 +124,33 @@ export const clientSearchProducts = async (req: Request, res: Response) => {
       return res.json([]);
     }
 
+    // ค้นหาสินค้า
     const products = await Product.find({
       $or: [
         { sku: { $regex: q, $options: 'i' } },
         { name: { $regex: q, $options: 'i' } }
       ]
     })
-    .select('sku name availablestock')
-    .limit(10)
+    .select('sku name availablestock imagepath')
+    .limit(100)
     .lean();
 
-    res.json(products);
+    // ดึงราคาจาก tbl_store_price
+    const skus = products.map(p => p.sku);
+    const prices = await Price.find({ 
+      sku: { $in: skus } 
+    }).lean();
+
+    // Map ราคาเข้ากับสินค้า
+    const productsWithPrices = products.map(product => {
+      const priceData = prices.find(p => p.sku === product.sku);
+      return {
+        ...product,
+        listPrice: priceData?.listPrice || []
+      };
+    });
+
+    res.json(productsWithPrices);
   } catch (error) {
     console.error('Error searching products:', error);
     res.status(500).json({ message: 'Internal server error' });

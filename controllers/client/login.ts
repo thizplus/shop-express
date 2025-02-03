@@ -4,11 +4,8 @@ import jwt from 'jsonwebtoken';
 import StoreConfig from '../../models/configStore';
 import Client, { IClient } from '../../models/clientModel';
 
-export const verifyProfile = async (req: Request, res: Response) => {
-  //console.log('Verifying profile');
-  //console.log('Headers:', req.headers);
-  //console.log('Body:', req.body);
 
+export const verifyProfile = async (req: Request, res: Response) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     console.error('No authorization header');
@@ -26,9 +23,6 @@ export const verifyProfile = async (req: Request, res: Response) => {
           access_token: token
         }
       });
-      
-     // console.log('LIFF token verified:', verifyResponse.data);
-    //  console.log('Profile data received:', profile);
 
       // Token is valid, find or create user
       let client = await Client.findOne({ userId: profile.userId });
@@ -39,7 +33,9 @@ export const verifyProfile = async (req: Request, res: Response) => {
           displayName: profile.displayName,
           pictureUrl: profile.pictureUrl,
           userType: profile.userType || 'store',
-          idType: profile.idType || 'store'
+          idType: profile.idType || 'store',
+          customPrices: [], // Initialize empty custom prices array
+          enableGrabDelivery: false
         });
       } else {
         // Update existing user's basic info
@@ -51,17 +47,25 @@ export const verifyProfile = async (req: Request, res: Response) => {
           client.userType = profile.userType;
           client.idType = profile.idType || 'store';
         }
+
+        // Ensure customPrices exists
+        if (!client.customPrices) {
+          client.customPrices = [];
+        }
       }
       await client.save();
-     // console.log('Updated/Created client:', client);
 
+      // Return full client data including customPrices
       return res.json({
         userId: client.userId,
         displayName: client.displayName,
         pictureUrl: client.pictureUrl,
         userType: client.userType,
-        idType: client.idType
+        idType: client.idType,
+        customPrices: client.customPrices || [], // Always include customPrices
+        enableGrabDelivery: client.enableGrabDelivery || false
       });
+
     } catch (liffError) {
       console.log('Not a valid LIFF token, trying JWT...', liffError);
     }
@@ -79,12 +83,15 @@ export const verifyProfile = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Return full client data including customPrices for JWT auth as well
     res.json({
       userId: client.userId,
       displayName: client.displayName,
       pictureUrl: client.pictureUrl,
       userType: client.userType,
-      idType: client.idType
+      idType: client.idType,
+      customPrices: client.customPrices || [], // Always include customPrices
+      enableGrabDelivery: client.enableGrabDelivery || false
     });
 
   } catch (error) {
