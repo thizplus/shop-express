@@ -11,12 +11,12 @@ import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductControl
 
 interface SyncRequest {
   product: Omit<IProduct, '_id'> & { _id: string };
-  action: 'create' | 'update' | 'delete' | 'po_confirm' | 'move_stock'| 'order_create' | 'order_void'| 'status_update';
+  action: 'create' | 'update' | 'delete' | 'po_confirm' | 'move_stock'| 'order_create' | 'order_void'| 'status_update' | 'stock_adjust_bulk';
   source: string;
 }
 
 const handleStockUpdate = async (product: any, io: SocketIOServer | undefined) => {
-  
+
   console.log('handleStockUpdate called:', { 
     action: product.action,
     sku: product.sku, 
@@ -135,6 +135,60 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
         break;
       }
 
+      case 'stock_adjust_bulk': {
+        const products = Array.isArray(product) ? product : [product];
+        console.log('📦 รายการที่จะอัพเดท:', products.map(p => ({
+          sku: p.sku,
+          stock: p.stock,
+          availablestock: p.availablestock
+        })));
+      
+        const bulkOps = products.map(prod => ({
+          updateOne: {
+            filter: { sku: prod.sku },
+            update: { 
+              $set: {
+                stock: prod.stock,
+                availablestock: prod.availablestock
+              }
+            }
+          }
+        }));
+      
+        try {
+          const result = await Product.bulkWrite(bulkOps);
+          
+          const updatedProducts = await Product.find({
+            sku: { $in: products.map(p => p.sku) }
+          })
+          .select('_id sku name stock availablestock categories')
+          .lean();
+      
+          console.log('📊 สถานะล่าสุด:', updatedProducts.map(p => ({
+            sku: p.sku,
+            stock: p.stock,
+            availablestock: p.availablestock
+          })));
+      
+          if (io && updatedProducts.length > 0) {
+            try {
+              for (const prod of updatedProducts) {
+                await emitMultiPriceProductUpdate(io, prod);
+                await emitWholesaleProductUpdate(io, prod);
+              }
+              console.log('📢 อัพเดท socket เรียบร้อย');
+            } catch (socketError) {
+              console.error('❌ Socket error:', socketError);
+            }
+          }
+      
+          return updatedProducts;
+        } catch (error) {
+          console.error('❌ Error:', error);
+          throw error;
+        }
+      }
+
     }
 
     res.json({ 
@@ -151,3 +205,6 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
     });
   }
 };
+
+
+
