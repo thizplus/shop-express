@@ -1,4 +1,4 @@
-// models/configModel.ts
+// models/configStore.ts
 import mongoose, { Document, Schema, Model } from 'mongoose';
 
 export interface ILineLogin {

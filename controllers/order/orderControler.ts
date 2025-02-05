@@ -3,6 +3,10 @@ import Order, { IOrder } from '../../models/orderModel';
 import { addPointFromOrder } from '../point/pointTransactionController';
 import PointSetting from '../../models/pointSettingModel'; 
 import mongoose from 'mongoose';
+import StoreConfig from '../../models/configStore';
+import { sendOrderFlexMessage } from '../line/sendOrderFlexMessage';
+import { sendTelegramOrderMessage } from '../line/sendTelegramOrderMessage';
+
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
@@ -159,7 +163,7 @@ const updatePaymentToStorage = async (orderData: any): Promise<void> => {
   }
 };
  
- export const updatePaymentStatus = async (req: Request, res: Response): Promise<void> => {
+export const updatePaymentStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { orderId } = req.params;
     const { slipUrl, verifyResult } = req.body;
@@ -173,6 +177,12 @@ const updatePaymentToStorage = async (orderData: any): Promise<void> => {
  
     if (!order) {
       res.status(404).json({ message: 'Order not found' });
+      return;
+    }
+
+    const config = await StoreConfig.findOne();
+    if (!config) {
+      res.status(500).json({ message: 'Store configuration not found' });
       return;
     }
  
@@ -203,29 +213,37 @@ const updatePaymentToStorage = async (orderData: any): Promise<void> => {
       return;
     }
  
-    // เพิ่มการส่งข้อมูลไปคลังสินค้า
     try {
       await updatePaymentToStorage(updatedOrder);
     } catch (storageError) {
       console.error('Failed to update storage:', storageError);
-      // ไม่ return error เพราะอัพเดทฝั่งร้านค้าสำเร็จแล้ว
     }
  
-    // เพิ่มพอยต์เมื่อชำระเงินครบ 
+    // ส่ง Line Flex Message เมื่อชำระเงินครบ
     if (newStatus === 'success') {
+      // เช็คว่า Line Message เปิดใช้งานหรือไม่
       try {
-        const pointSetting = await PointSetting.findOne();
         
-        if (!pointSetting || !pointSetting.isActive) {
-          res.status(200).json({
-            message: 'Payment status updated successfully (Point system is inactive)',
-            order: updatedOrder,  
-            fullyPaid: true,
-            pointsEarned: 0
-          });
-          return;
-        }
- 
+        await sendOrderFlexMessage(updatedOrder, config, order.userId);
+        await sendTelegramOrderMessage(updatedOrder, config);
+
+      } catch (error) {
+        console.error('Error sending flex message:', error);
+      }
+
+      const pointSetting = await PointSetting.findOne();
+        
+      if (!pointSetting || !pointSetting.isActive) {
+        res.status(200).json({
+          message: 'Payment status updated successfully (Point system is inactive)',
+          order: updatedOrder,  
+          fullyPaid: true,
+          pointsEarned: 0
+        });
+        return;
+      }
+
+      try {
         const pointResult = await addPointFromOrder(
           orderId,
           order.userId, 
@@ -265,7 +283,7 @@ const updatePaymentToStorage = async (orderData: any): Promise<void> => {
       res.status(500).json({ message: 'An unknown error occurred while updating payment status' });
     }
   }
- };
+};
 
 
  export const voidFromWarehouse = async (req: Request, res: Response) => {
