@@ -223,7 +223,7 @@ export const emitWholesaleProductUpdate = async (io: SocketIOServer, updatedProd
       'listPrice.price': { $gt: 0 }
     }).lean();
  
-    console.log('Price data found:', priceData);
+   // console.log('Price data found:', priceData);
     
     io.of('/wholesale').sockets.forEach((socket) => {
       const clientPriceId = globalClientPriceIds.get(socket.id);

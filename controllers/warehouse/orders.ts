@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import axios from 'axios';
 import Order,{ IOrder }  from '../../models/orderModel';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 dotenv.config();
 
 export const sendOrderToWarehouse = async (req: Request, res: Response) => {
@@ -25,7 +26,7 @@ export const sendOrderToWarehouse = async (req: Request, res: Response) => {
       }
     );
 
-    console.log('Warehouse response:', response.data);
+    //console.log('Warehouse response:', response.data);
 
     res.status(200).json({
       success: true,
@@ -49,63 +50,76 @@ export const sendOrderToWarehouse = async (req: Request, res: Response) => {
 
 
 export const voidOrderToWarehouse = async (req: Request, res: Response) => {
+  
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { orderId } = req.body;
+  
 
-    // ค้นหา order จากฐานข้อมูล
-    const order = await Order.findOne({ orderId: orderId });
-
+    const order = await Order.findOne({ orderId });
     if (!order) {
+   
       return res.status(404).json({ message: 'Order not found' });
     }
+  
 
-    try {
-      // ส่งคำสั่งยกเลิกไปที่ store แทน
-      const storeUrl = process.env.STORE_API_URL?.replace(/\/+$/, '');
-      const response = await axios.post(`${storeUrl}/api/orders/${orderId}/void`, {
-        orderId
-      });
+    // ส่งคำสั่งยกเลิกไปที่คลัง
+    const warehouseUrl = process.env.STORE_API_URL?.replace(/\/+$/, '');
+  
 
-      console.log('Store void order response:', response.data);
+    const warehouseResponse = await axios.post(
+      `${warehouseUrl}/api/orders/${orderId}/void`
+    );
+  
+    if (!warehouseResponse.data.success) {
+   
+      throw new Error(`Warehouse void failed: ${warehouseResponse.data.message}`);
+    }
 
-      // อัปเดตสถานะของ order ในฐานข้อมูล shop
-      const updatedOrder = await Order.findOneAndUpdate(
-        { orderId: orderId },
-        { 
-          $set: { 
-            'payment.status': 'cancelled'
-          }
-        },
-        { new: true }
-      );
-
-      if (!updatedOrder) {
-        throw new Error('Failed to update order status in database');
-      }
-
-      res.status(200).json({
-        message: 'Order voided successfully',
-        updatedOrder: {
-          orderId: updatedOrder.orderId,
-          status: updatedOrder.payment.status
+   
+    const updatedOrder = await Order.findOneAndUpdate(
+      { orderId },
+      { 
+        $set: { 
+          'payment.status': 'cancelled'
         }
-      });
+      },
+      { new: true, session }
+    );
 
-    } catch (axiosError) {
-      if (axios.isAxiosError(axiosError)) {
-        console.error('Axios error:', axiosError.response?.data);
-        throw new Error(`Store API request failed: ${axiosError.message}`);
-      } else {
-        throw axiosError;
+    if (!updatedOrder) {
+     
+      throw new Error('Failed to update order status');
+    }
+ 
+
+    await session.commitTransaction();
+   
+
+    res.status(200).json({
+      success: true,
+      message: 'Order voided successfully',
+      order: {
+        orderId: updatedOrder.orderId,
+        status: updatedOrder.payment.status
       }
-    }
-  } catch (error: unknown) {
+    });
+
+  } catch (error) {
+    console.log('❌ Error occurred:', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    await session.abortTransaction();
     console.error('Error in voidOrderToWarehouse:', error);
-    if (error instanceof Error) {
-      res.status(500).json({ message: 'Error voiding order', error: error.message });
-    } else {
-      res.status(500).json({ message: 'An unknown error occurred while voiding order' });
-    }
+    res.status(500).json({ 
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to void order'
+    });
+  } finally {
+    session.endSession();
+    console.log('Session ended');
   }
 };
-

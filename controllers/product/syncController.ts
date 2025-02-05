@@ -1,5 +1,3 @@
-//controller/syncController.ts
-
 import { Request, Response } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import Product, { IProduct } from '../../models/productModel';
@@ -10,44 +8,67 @@ import { emitMultiPriceProductUpdate } from '../wholesale/getProductsWithMultiPr
 import { emitWholesaleProductUpdate } from '../wholesale/wholesaleProductController';
 
 interface SyncRequest {
-  product: Omit<IProduct, '_id'> & { _id: string };
-  action: 'create' | 'update' | 'delete' | 'po_confirm' | 'move_stock'| 'order_create' | 'order_void'| 'status_update' | 'stock_adjust_bulk';
+  product: Omit<IProduct, '_id'> & { _id: string } | Array<Omit<IProduct, '_id'> & { _id: string }>;
+  action: 'create' | 'update' | 'delete' | 'po_confirm' | 'move_stock' | 'order_create' | 'order_void' | 'status_update' | 'stock_adjust_bulk';
   source: string;
 }
 
-const handleStockUpdate = async (product: any, io: SocketIOServer | undefined) => {
+const handleBulkStockUpdate = async (products: any[], io: SocketIOServer | undefined) => {
+  try {
+    console.log('📦 รายการที่จะอัพเดท:', products.map(p => ({
+      sku: p.sku,
+      stock: p.stock,
+      availablestock: p.availablestock
+    })));
 
-  console.log('handleStockUpdate called:', { 
-    action: product.action,
-    sku: product.sku, 
-    stock: product.stock,
-    availablestock: product.availablestock 
-  });
- 
-  const { _id, ...updateData } = product;
-  const updatedProduct = await Product.findOneAndUpdate(
-    { sku: product.sku },
-    { 
-      stock: updateData.stock,
-      availablestock: updateData.availablestock
-    },
-    { new: true }
-  ).lean();
- 
-  console.log('Product after update:', updatedProduct);
- 
-  if (updatedProduct && io) {
-    console.log('Emitting socket update');
-    await emitMultiPriceProductUpdate(io, updatedProduct);
-    await emitWholesaleProductUpdate(io, updatedProduct);
-    
+    const bulkOps = products.map(prod => ({
+      updateOne: {
+        filter: { sku: prod.sku },
+        update: { 
+          $set: {
+            stock: prod.stock,
+            availablestock: prod.availablestock
+          }
+        }
+      }
+    }));
+
+    await Product.bulkWrite(bulkOps, { ordered: false });
+
+    const updatedProducts = await Product.find({
+      sku: { $in: products.map(p => p.sku) }
+    })
+    .select('_id sku name stock availablestock categories')
+    .lean();
+
+    console.log('📊 สถานะล่าสุด:', updatedProducts.map(p => ({
+      sku: p.sku,
+      stock: p.stock,
+      availablestock: p.availablestock
+    })));
+
+    if (io && updatedProducts.length > 0) {
+      try {
+        await Promise.all(
+          updatedProducts.map(async (prod) => {
+            await Promise.all([
+              emitMultiPriceProductUpdate(io, prod),
+              emitWholesaleProductUpdate(io, prod)
+            ]);
+          })
+        );
+        console.log('📢 อัพเดท socket เรียบร้อย');
+      } catch (socketError) {
+        console.error('❌ Socket error:', socketError);
+      }
+    }
+
+    return updatedProducts;
+  } catch (error) {
+    console.error('❌ Bulk update error:', error);
+    throw error;
   }
-  
-  return updatedProduct;
- };
-
-
-
+};
 
 export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>, res: Response) => {
   try {
@@ -60,7 +81,7 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
     
     switch (action) {
       case 'create': {
-        const { _id, ...productData } = product;
+        const { _id, ...productData } = product as any;
         
         // Check and create categories
         for (const cat of productData.categories) {
@@ -97,104 +118,52 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
       }
 
       case 'update': {
-        const { _id,categories, ...updateData } = product;
+        const { _id, categories, ...updateData } = product as any;
         const result = await Product.findOneAndUpdate(
-          { sku: product.sku },
+          { sku: updateData.sku },
           updateData,
           { new: true }
         );
         console.log('Product updated:', result?.sku);
         break;
       }
+
+      case 'status_update': {
+        const prod = product as any;
+        const result = await Product.findOneAndUpdate(
+          { sku: prod.sku },
+          { active: prod.active },
+          { new: true }
+        ).lean();
+        console.log('Product status updated:', result?.sku);
+        break;
+      }
       
       case 'delete': {
-        const result = await Product.findOneAndDelete({ sku: product.sku });
-        await Price.findOneAndDelete({ sku: product.sku });
+        const result = await Product.findOneAndDelete({ sku: (product as any).sku });
+        await Price.findOneAndDelete({ sku: (product as any).sku });
         console.log('Product deleted:', result?.sku);
         break;
       }
 
+
       case 'po_confirm':
       case 'move_stock':
       case 'order_create':
-      case 'order_void': {
-        await handleStockUpdate(product, io);
-        break;
-      }
-
-      case 'status_update': {
-        // อัพเดทสถานะสินค้า
-        const result = await Product.findOneAndUpdate(
-          { sku: product.sku },
-          { active: product.active },
-          { new: true }
-        ).lean();
-
-        console.log('Product update status:', result?.sku);
-      
-        break;
-      }
-
+      case 'order_void':
       case 'stock_adjust_bulk': {
         const products = Array.isArray(product) ? product : [product];
-        console.log('📦 รายการที่จะอัพเดท:', products.map(p => ({
-          sku: p.sku,
-          stock: p.stock,
-          availablestock: p.availablestock
-        })));
-      
-        const bulkOps = products.map(prod => ({
-          updateOne: {
-            filter: { sku: prod.sku },
-            update: { 
-              $set: {
-                stock: prod.stock,
-                availablestock: prod.availablestock
-              }
-            }
-          }
-        }));
-      
-        try {
-          const result = await Product.bulkWrite(bulkOps);
-          
-          const updatedProducts = await Product.find({
-            sku: { $in: products.map(p => p.sku) }
-          })
-          .select('_id sku name stock availablestock categories')
-          .lean();
-      
-          console.log('📊 สถานะล่าสุด:', updatedProducts.map(p => ({
-            sku: p.sku,
-            stock: p.stock,
-            availablestock: p.availablestock
-          })));
-      
-          if (io && updatedProducts.length > 0) {
-            try {
-              for (const prod of updatedProducts) {
-                await emitMultiPriceProductUpdate(io, prod);
-                await emitWholesaleProductUpdate(io, prod);
-              }
-              console.log('📢 อัพเดท socket เรียบร้อย');
-            } catch (socketError) {
-              console.error('❌ Socket error:', socketError);
-            }
-          }
-      
-          return updatedProducts;
-        } catch (error) {
-          console.error('❌ Error:', error);
-          throw error;
-        }
+        await handleBulkStockUpdate(products, io);
+        break;
       }
 
+     
     }
 
     res.json({ 
       success: true,
       action,
-      sku: product.sku
+      sku: (product as any).sku
     });
 
   } catch (error) {
@@ -205,6 +174,3 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
     });
   }
 };
-
-
-

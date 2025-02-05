@@ -151,7 +151,7 @@ const updatePaymentToStorage = async (orderData: any): Promise<void> => {
     }
 
     const result = await response.json();
-    console.log('Storage update success:', result);
+    //console.log('Storage update success:', result);
 
   } catch (error) {
     console.error('Error updating payment in storage:', error);
@@ -266,3 +266,49 @@ const updatePaymentToStorage = async (orderData: any): Promise<void> => {
     }
   }
  };
+
+
+ export const voidFromWarehouse = async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ orderId'
+      });
+    }
+
+    const updatedOrder = await Order.findOneAndUpdate(
+      { orderId },
+      { 
+        $set: { 
+          'payment.status': 'cancelled',
+          'isPayment.status': 'cancelled'
+        }
+      },
+      { new: true }
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบ order'
+      });
+    }
+
+    console.log(`✅ อัพเดทสถานะ order ${orderId} เป็นยกเลิกแล้ว`);
+
+    res.json({
+      success: true,
+      message: 'อัพเดทสถานะเป็นยกเลิกเรียบร้อย'
+    });
+
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดในการยกเลิก order:', error);
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
+    });
+  }
+};
