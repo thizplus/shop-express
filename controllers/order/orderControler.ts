@@ -223,7 +223,7 @@ export const updatePaymentStatus = async (req: Request, res: Response): Promise<
     if (newStatus === 'success') {
       // เช็คว่า Line Message เปิดใช้งานหรือไม่
       try {
-        
+
         await sendOrderFlexMessage(updatedOrder, config, order.userId);
         await sendTelegramOrderMessage(updatedOrder, config);
 
@@ -324,6 +324,57 @@ export const updatePaymentStatus = async (req: Request, res: Response): Promise<
 
   } catch (error) {
     console.error('❌ เกิดข้อผิดพลาดในการยกเลิก order:', error);
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'
+    });
+  }
+};
+
+
+
+export const bulkVoidFromWarehouse = async (req: Request, res: Response) => {
+  try {
+    const { orderIds } = req.body;
+
+    if (!Array.isArray(orderIds) || !orderIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุรายการ orderIds'
+      });
+    }
+
+    // อัพเดทหลาย orders พร้อมกัน
+    const result = await Order.updateMany(
+      { orderId: { $in: orderIds } },
+      { 
+        $set: { 
+          'payment.status': 'cancelled',
+          'isPayment.status': 'cancelled',
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบ orders ที่ระบุ'
+      });
+    }
+
+    console.log(`✅ อัพเดทสถานะ ${result.modifiedCount} orders เป็นยกเลิกแล้ว`);
+    console.log(`📝 รายการที่ยกเลิก: ${orderIds.join(', ')}`);
+
+    res.json({
+      success: true,
+      message: 'อัพเดทสถานะเป็นยกเลิกเรียบร้อย',
+      totalUpdated: result.modifiedCount,
+      totalOrders: orderIds.length
+    });
+
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดในการยกเลิก orders:', error);
     res.status(500).json({
       success: false,
       message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ'

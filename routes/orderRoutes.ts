@@ -1,5 +1,5 @@
 import express from 'express';
-import { createOrder, getOrderById, getOrders, updatePaymentStatus, voidFromWarehouse } from '../controllers/order/orderControler';
+import { bulkVoidFromWarehouse, createOrder, getOrderById, getOrders, updatePaymentStatus, voidFromWarehouse } from '../controllers/order/orderControler';
 import { getAdminOrders, searchOrders } from '../controllers/order/getOrders';
 import { getLatestPendingOrder, getPendingOrders } from '../controllers/order/getPendingOrders';
 import { getOrderReport } from '../controllers/order/getOrderReport';
@@ -10,6 +10,7 @@ const router = express.Router();
 
 router.post('/sync', syncOrderFromWarehouse);
 router.post('/voidFromWarehouse', voidFromWarehouse);
+router.post('/bulkVoidFromWarehouse', bulkVoidFromWarehouse);
 
 // สร้าง Order ใหม่
 router.post('/create', createOrder);
