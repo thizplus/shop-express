@@ -38,12 +38,17 @@ export const updatePriceLiffId = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Missing required parameters' });
     }
 
-    // ค้นหาใน PriceList ก่อน
+    // ค้นหาและอัพเดทใน PriceList
     const priceList = await PriceList.findById(priceId);
     if (!priceList) {
       return res.status(404).json({ message: 'Price not found in PriceList' });
     }
 
+    // อัพเดท LIFF_ID ใน PriceList
+    priceList.LIFF_ID = liffId;
+    await priceList.save();
+
+    // อัพเดทใน StoreConfig
     const config = await StoreConfig.findOne();
     if (!config) {
       return res.status(404).json({ message: 'Config not found' });
@@ -59,6 +64,7 @@ export const updatePriceLiffId = async (req: Request, res: Response) => {
 
     res.json({ 
       message: 'LIFF ID updated successfully',
+      priceName: priceList.priceName,
       liffId 
     });
   } catch (error) {
