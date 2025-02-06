@@ -1,3 +1,5 @@
+//priceModel.ts
+
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IListPrice {

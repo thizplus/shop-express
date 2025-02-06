@@ -5,30 +5,18 @@ import PriceList from '../../models/priceListModel';
 export const getPriceLiffId = async (req: Request, res: Response) => {
   try {
     const { priceId } = req.params;
-    
-    // หา price จาก PriceList ก่อน
-    const priceList = await PriceList.findById(priceId);
+    const priceList = await PriceList.findOne({ priceId });
+
     if (!priceList) {
-      return res.status(404).json({ message: 'Price not found in PriceList' });
+      return res.status(404).json({ message: 'Price list not found' });
     }
 
-    // หา config และ price ที่ตรงกับ priceId จาก PriceList
-    const config = await StoreConfig.findOne();
-    if (!config) {
-      return res.status(404).json({ message: 'Config not found' });
-    }
-
-    const price = config.saleModel.listPrice.find(p => p.id === priceList.priceId);
-    if (!price) {
-      return res.status(404).json({ message: 'Price not found in StoreConfig' });
-    }
-
-    res.json({ liffId: price.LIFF_ID || null });
+    res.json({ liffId: priceList.LIFF_ID || null });
   } catch (error) {
-    console.error('Error fetching LIFF ID:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
+
 
 export const updatePriceLiffId = async (req: Request, res: Response) => {
   try {
@@ -38,37 +26,22 @@ export const updatePriceLiffId = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Missing required parameters' });
     }
 
-    // ค้นหาและอัพเดทใน PriceList
-    const priceList = await PriceList.findById(priceId);
+    const priceList = await PriceList.findOneAndUpdate(
+      { priceId },
+      { LIFF_ID: liffId },
+      { new: true }
+    );
+
     if (!priceList) {
-      return res.status(404).json({ message: 'Price not found in PriceList' });
+      return res.status(404).json({ message: 'Price list not found' });
     }
 
-    // อัพเดท LIFF_ID ใน PriceList
-    priceList.LIFF_ID = liffId;
-    await priceList.save();
-
-    // อัพเดทใน StoreConfig
-    const config = await StoreConfig.findOne();
-    if (!config) {
-      return res.status(404).json({ message: 'Config not found' });
-    }
-
-    const priceIndex = config.saleModel.listPrice.findIndex(p => p.id === priceList.priceId);
-    if (priceIndex === -1) {
-      return res.status(404).json({ message: 'Price not found in StoreConfig' });
-    }
-
-    config.saleModel.listPrice[priceIndex].LIFF_ID = liffId;
-    await config.save();
-
-    res.json({ 
+    res.json({
       message: 'LIFF ID updated successfully',
       priceName: priceList.priceName,
-      liffId 
+      liffId
     });
   } catch (error) {
-    console.error('Error updating LIFF ID:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
