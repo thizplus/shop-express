@@ -13,7 +13,7 @@ export const verifySlip = async (req: Request, res: Response) => {
   try {
     const verifyData = {
       url,
-     // log: true
+      log: true
     };
 
     console.log('Sending request to SlipOK API:', {
@@ -34,14 +34,14 @@ export const verifySlip = async (req: Request, res: Response) => {
     // ตรวจสอบโครงสร้างการตอบกลับใหม่
     if (verifyResponse.data.success && verifyResponse.data.data.success) {
 
-       
+
       return res.status(200).json({
         status: 'success',
         message: verifyResponse.data.data.message || 'สลิปถูกต้อง',
         data: verifyResponse.data.data
       });
     } else {
-   
+
       return res.status(400).json({
         status: 'error',
         message: verifyResponse.data.data?.message || 'ไม่สามารถยืนยันสลิปได้',
