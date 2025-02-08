@@ -37,6 +37,7 @@ import dailyPaymentRoutes from './routes/dailyPaymentRoutes';
 import migrationRoutes from './routes/migrationRoutes';
 
 dotenv.config();
+process.env.TZ = 'Asia/Bangkok';
 
 const app = express();
 const server = http.createServer(app);
