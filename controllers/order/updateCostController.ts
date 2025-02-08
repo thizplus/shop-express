@@ -90,18 +90,22 @@ export const updateOrderCost = async (req: Request, res: Response) => {
 
         // อัพเดทข้อมูลต้นทุนในแต่ละสินค้า
         const updatedProducts = order.listProducts.map(product => {
-          const costInfo = costMap.get(product.sku);
-          if (!costInfo) {
-            console.log(`⚠️ ไม่พบข้อมูลต้นทุนสำหรับสินค้า: ${product.sku}`);
-            return product;
-          }
+            const costInfo = costMap.get(product.sku);
+            if (!costInfo) {
+              console.log(`⚠️ ไม่พบข้อมูลต้นทุนสำหรับสินค้า: ${product.sku}`);
+              return product;
+            }
 
-          return {
-            ...product,
-            cost: costInfo.cost,
-            totalCost: costInfo.totalCost,
-            profit: product.price - costInfo.cost
-          };
+            return {
+                sku: product.sku,
+                name: product.name,
+                price: product.price,
+                qty: product.qty,
+                total: product.total,
+                cost: costInfo.cost,
+                totalCost: costInfo.totalCost,
+                profit: product.price - costInfo.cost
+              };
         });
 
         // คำนวณกำไร/ขาดทุน
