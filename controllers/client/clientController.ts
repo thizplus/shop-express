@@ -75,3 +75,93 @@ export const getBulkClients = async (req: Request, res: Response) => {
       });
     }
   };
+
+
+
+
+  // ดึงข้อมูล PIN ของลูกค้า
+export const getClientPin = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const client = await Client.findOne(
+      { userId }, 
+      'pin isPinVerified pinCreatedAt pinAttempts pinLastAttempt'
+    ).select('+pin'); // ระบุให้ดึง field pin ที่ถูก select: false
+
+    if (!client) {
+      return res.status(404).json({ message: 'ไม่พบข้อมูลลูกค้า' });
+    }
+
+    res.json({
+      pin: client.pin || null,
+      isPinVerified: client.isPinVerified,
+      pinCreatedAt: client.pinCreatedAt,
+      pinAttempts: client.pinAttempts,
+      pinLastAttempt: client.pinLastAttempt
+    });
+
+  } catch (error) {
+    console.error('Error in getClientPin:', error);
+    res.status(500).json({ 
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล PIN',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// อัพเดท PIN ของลูกค้า
+export const updateClientPin = async (req: Request, res: Response) => {
+  try {
+    const { userId, pin } = req.body;
+
+    // ตรวจสอบความถูกต้องของข้อมูล
+    if (!userId || !pin) {
+      return res.status(400).json({ message: 'กรุณาระบุ userId และ pin' });
+    }
+
+    // Validate PIN format
+    if (!/^\d{4,6}$/.test(pin)) {
+      return res.status(400).json({ message: 'PIN ต้องเป็นตัวเลข 4-6 หลัก' });
+    }
+
+    // อัพเดทข้อมูล
+    const updatedClient = await Client.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          pin,
+          isPinVerified: false, // รีเซ็ตสถานะการยืนยัน PIN
+          pinCreatedAt: new Date(),
+          pinAttempts: 0, // รีเซ็ตจำนวนครั้งที่ใส่ผิด
+          pinLastAttempt: null
+        }
+      },
+      { 
+        new: true,
+        select: '-pin' // ไม่ส่ง PIN กลับไปในการตอบกลับ
+      }
+    );
+
+    if (!updatedClient) {
+      return res.status(404).json({ message: 'ไม่พบข้อมูลลูกค้า' });
+    }
+
+    // ส่งข้อมูลการอัพเดทกลับ
+    res.json({
+      message: 'อัพเดท PIN สำเร็จ',
+      client: {
+        userId: updatedClient.userId,
+        isPinVerified: updatedClient.isPinVerified,
+        pinCreatedAt: updatedClient.pinCreatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Error in updateClientPin:', error);
+    res.status(500).json({ 
+      message: 'เกิดข้อผิดพลาดในการอัพเดท PIN',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
