@@ -5,9 +5,9 @@ import bcrypt from 'bcryptjs';
 
 export const changePassword = async (req: Request, res: Response) => {
   try {
-    const { username, oldPassword, newPassword } = req.body;
+    const { userName, oldPassword, newPassword } = req.body;
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username: userName });
     if (!user) {
       return res.status(200).json({
         message: 'ไม่พบผู้ใช้งาน',
