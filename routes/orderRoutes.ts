@@ -5,12 +5,15 @@ import { getLatestPendingOrder, getPendingOrders } from '../controllers/order/ge
 import { getOrderReport } from '../controllers/order/getOrderReport';
 import { updateGrabPayment } from '../controllers/order/updateGrabPayment';
 import { syncOrderFromWarehouse } from '../controllers/order/syncOrderController';
+import { updateOrderCost } from '../controllers/order/updateCostController';
 
 const router = express.Router();
 
 router.post('/sync', syncOrderFromWarehouse);
 router.post('/voidFromWarehouse', voidFromWarehouse);
 router.post('/bulkVoidFromWarehouse', bulkVoidFromWarehouse);
+
+router.post('/updateCost', updateOrderCost);
 
 // สร้าง Order ใหม่
 router.post('/create', createOrder);
