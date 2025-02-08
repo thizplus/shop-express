@@ -33,6 +33,8 @@ export const createPriceList = async (req: Request, res: Response) => {
   
   try {
     const { priceName, idPrice } = req.body;
+    console.log('Received request:', { priceName, idPrice });
+
     if (!priceName?.trim()) {
       return res.status(400).json({ message: 'Price name is required' });
     }
@@ -43,20 +45,42 @@ export const createPriceList = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Price name already exists' });
     }
 
+    // สร้าง price list ใหม่
     const priceList = await PriceList.create([{
       priceId,
       priceName: priceName.trim(),
       status: true
     }], { session });
 
+    // ดึงข้อมูลสินค้าทั้งหมด
     const products = await Product.find({}, null, { session });
+    console.log(`Found ${products.length} products`);
 
-    if (idPrice) {
-      const existingPrices = await Price.find({ 'listPrice.priceId': idPrice }, null, { session });
+    let priceOperations;
+
+    // ตรวจสอบว่ามีการส่ง idPrice มาหรือไม่
+    if (idPrice && typeof idPrice === 'string' && idPrice.trim()) {
+      console.log('Copying prices from existing price list:', idPrice);
       
-      const priceOperations = products.map(async (product) => {
+      // ดึงข้อมูลราคาที่มีอยู่
+      const existingPrices = await Price.find(
+        { 'listPrice.priceId': idPrice.trim() }, 
+        null, 
+        { session }
+      );
+      console.log(`Found ${existingPrices.length} existing prices to copy from`);
+
+      // สร้าง operations สำหรับคัดลอกราคา
+      priceOperations = products.map(async (product) => {
         const existingPrice = existingPrices.find(p => p.sku === product.sku);
-        const price = existingPrice?.listPrice.find(lp => lp.priceId === idPrice)?.price || 0;
+        const existingPriceList = existingPrice?.listPrice.find(lp => lp.priceId === idPrice.trim());
+        const price = existingPriceList?.price ?? 0;
+
+        console.log(`Setting price for ${product.sku}:`, {
+          existingPrice: !!existingPrice,
+          foundPriceList: !!existingPriceList,
+          price
+        });
 
         return Price.findOneAndUpdate(
           { sku: product.sku },
@@ -72,10 +96,10 @@ export const createPriceList = async (req: Request, res: Response) => {
           { upsert: true, new: true, session }
         );
       });
-
-      await Promise.all(priceOperations);
     } else {
-      const priceOperations = products.map(product => 
+      console.log('Creating new price list with zero prices');
+      // สร้าง operations สำหรับราคาใหม่ทั้งหมด
+      priceOperations = products.map(product => 
         Price.findOneAndUpdate(
           { sku: product.sku },
           { 
@@ -90,19 +114,28 @@ export const createPriceList = async (req: Request, res: Response) => {
           { upsert: true, new: true, session }
         )
       );
-
-      await Promise.all(priceOperations);
     }
 
+    // ดำเนินการ operations ทั้งหมด
+    await Promise.all(priceOperations);
+    console.log('All price operations completed');
+
+    // Commit transaction
     await session.commitTransaction();
+    console.log('Transaction committed successfully');
+
     res.status(201).json({
       message: 'Price list created successfully',
       priceList: priceList[0]
     });
 
   } catch (error) {
+    console.error('Error in createPriceList:', error);
     await session.abortTransaction();
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ 
+      message: error instanceof Error ? error.message : 'Internal server error',
+      error: error instanceof Error ? error.message : undefined
+    });
   } finally {
     session.endSession();
   }
@@ -291,3 +324,116 @@ export const updateNamePriceList = async (req: Request, res: Response) => {
     session.endSession();
   }
  };
+
+
+ export const updateAllowedUsers = async (req: Request, res: Response) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { userId, priceIds } = req.body;
+
+    if (!userId) {
+      throw new Error('userId is required');
+    }
+
+    // 1. หา price lists ทั้งหมดที่ user มีสิทธิ์อยู่
+    const currentPriceLists = await PriceList.find(
+      { allowedUsers: userId },
+      'priceId',
+      { session }
+    );
+    
+    // 2. หา price lists ที่ต้องลบสิทธิ์ออก
+    const currentPriceIds = currentPriceLists.map(p => p.priceId);
+    const priceIdsToRemove = currentPriceIds.filter(id => !priceIds.includes(id));
+
+    // 3. หา price lists ที่ต้องเพิ่มสิทธิ์
+    const priceIdsToAdd = priceIds.filter((id: string) => !currentPriceIds.includes(id));
+
+    // 4. ลบสิทธิ์เก่า
+    if (priceIdsToRemove.length > 0) {
+      await PriceList.updateMany(
+        { priceId: { $in: priceIdsToRemove } },
+        { $pull: { allowedUsers: userId } },
+        { session }
+      );
+    }
+
+    // 5. เพิ่มสิทธิ์ใหม่
+    if (priceIdsToAdd.length > 0) {
+      await PriceList.updateMany(
+        { priceId: { $in: priceIdsToAdd } },
+        { $addToSet: { allowedUsers: userId } },
+        { session }
+      );
+    }
+
+    await session.commitTransaction();
+
+    // ส่งข้อมูลกลับให้ละเอียดขึ้น
+    res.json({
+      message: 'User access updated successfully',
+      updates: {
+        removed: priceIdsToRemove,
+        added: priceIdsToAdd
+      }
+    });
+
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Error updating user access:', error);
+    res.status(500).json({ 
+      message: 'Failed to update user access',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// เพิ่ม endpoint สำหรับดึงข้อมูล price list พร้อม allowedUsers
+export const getPriceListsWithAccess = async (req: Request, res: Response) => {
+  try {
+    const priceLists = await PriceList.find(
+      { status: true },
+      'priceId priceName allowedUsers minPurchase'
+    );
+
+    res.json(priceLists.map(price => ({
+      id: price.priceId,
+      name: price.priceName,
+      allowedUsers: price.allowedUsers
+    })));
+  } catch (error) {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+
+export const getPriceById = async (req: Request, res: Response) => {
+  try {
+    const { priceId } = req.params;
+
+    const priceList = await PriceList.findOne({ 
+      priceId,
+      status: true 
+    });
+
+    if (!priceList) {
+      return res.status(404).json({ message: 'Price not found' });
+    }
+
+    res.json({
+      priceId: priceList.priceId,
+      priceName: priceList.priceName,
+      status: priceList.status,
+      LIFF_ID: priceList.LIFF_ID,
+      allowedUsers: priceList.allowedUsers || []
+    });
+
+  } catch (error) {
+    console.error('Error fetching price:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};

@@ -34,6 +34,8 @@ import warehouseRoutes from './routes/warehouseRoutes';
 
 import dailyPaymentRoutes from './routes/dailyPaymentRoutes';
 
+import migrationRoutes from './routes/migrationRoutes';
+
 dotenv.config();
 
 const app = express();
@@ -100,6 +102,8 @@ app.use('/api/coupons', couponRoutes);
 app.use('/api/points', pointRoutes);
 
 app.use('/api/daily-payment', dailyPaymentRoutes);
+
+app.use('/api/migration', migrationRoutes);
 
 // Setup Socket.IO for wholesale
 setupWholesaleProductSocket(io);

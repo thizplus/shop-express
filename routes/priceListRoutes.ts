@@ -6,7 +6,10 @@ import {
  searchPriceLists,
  updatePriceList,
  deletePriceList,
- updateNamePriceList
+ updateNamePriceList,
+ updateAllowedUsers,
+ getPriceListsWithAccess,
+ getPriceById
 } from '../controllers/priceList/priceListController';
 
 const router = express.Router();
@@ -18,6 +21,11 @@ router.put('/update', updatePriceList);
 
 router.patch('/update-name', updateNamePriceList);
 
+// New routes for allowedUsers
+router.put('/update-access', updateAllowedUsers);
+router.get('/with-access', getPriceListsWithAccess);
+
+router.get('/:priceId', getPriceById);
 router.delete('/delete/:priceId', deletePriceList);
 
 export default router;

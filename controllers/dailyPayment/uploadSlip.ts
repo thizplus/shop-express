@@ -2,26 +2,30 @@
 import { Request, Response } from 'express';
 import multer from 'multer';
 import uploadImageToSpaces from '../../functions/uploadImageToSpaces';
-
 import dotenv from 'dotenv';
-dotenv.config();
-
-
 import { verifySlip } from '../slipOK/verifySlip';
 
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // จำกัดขนาดไฟล์ที่ 5MB
-  },
-  fileFilter: (req, file, cb) => {
-    // ตรวจสอบ MIME type
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only images are allowed.'));
-    }
+dotenv.config();
+
+const storage = multer.memoryStorage();
+
+const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  // รองรับทั้ง image/ และ application/octet-stream
+  if (file.mimetype.startsWith('image/') || file.mimetype === 'application/octet-stream') {
+    console.log('File accepted:', file.originalname, file.mimetype);
+    cb(null, true);
+  } else {
+    console.log('File rejected:', file.originalname, file.mimetype);
+    cb(new Error('Invalid file type. Only images are allowed.'));
   }
+};
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter
 });
 
 export const uploadSlip = async (req: Request, res: Response) => {
@@ -54,10 +58,21 @@ export const uploadSlip = async (req: Request, res: Response) => {
     }
 
     try {
+      // แก้ไข mimetype สำหรับไฟล์จากมือถือ
+      if (req.file.mimetype === 'application/octet-stream') {
+        req.file.mimetype = 'image/jpeg';
+      }
+
+      console.log('Processing upload:', {
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+
       const downloadURL = await uploadImageToSpaces(req.file, 'daily-payment-slips');
       
       if (downloadURL) {
-        res.status(200).json({ 
+        return res.status(200).json({ 
           status: 'success',
           data: {
             url: downloadURL
@@ -68,14 +83,13 @@ export const uploadSlip = async (req: Request, res: Response) => {
       }
     } catch (error) {
       console.error('Error in uploadSlip:', error);
-      res.status(500).json({ 
+      return res.status(500).json({ 
         status: 'error',
         message: error instanceof Error ? error.message : 'An unknown error occurred'
       });
     }
   });
 };
-
 
 export const verifyAndUpdatePayment = async (req: Request, res: Response) => {
   try {
