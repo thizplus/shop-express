@@ -11,6 +11,11 @@ interface DailySummary {
   totalAmount: number;
   totalNetAmount: number;
   totalPaymentAmount: number;
+
+  totalCost: number;         // ต้นทุนรวม
+  totalGrossProfit: number;  // กำไรขั้นต้นรวม
+  totalNetProfit: number;    // กำไรสุทธิรวม
+  totalWarehouseFees: number; // ค่าใช้จ่ายคลังรวม
 }
 
 interface OrderDetail {
@@ -23,6 +28,16 @@ interface OrderDetail {
   createdAt: string;
   payment: {
     amount: number;
+  };
+  profitInfo?: {
+    totalCost: number;    // ต้นทุนรวม
+    grossProfit: number;  // กำไรขั้นต้น
+    netProfit: number;    // กำไรสุทธิ
+  };
+  warehouseFees?: {
+    shippingCost: number;
+    serviceFee: number;
+    totalFees: number;
   };
 }
 
@@ -72,7 +87,7 @@ export const getOrderReport = async (req: Request, res: Response) => {
     const ordersByDate = orders.reduce<{ [key: string]: any }>((acc, order) => {
       // แปลง UTC เป็นเวลาไทยสำหรับการแสดงผล
       const orderDate = new Date(order.createdAt);
-      
+
       // Format วันที่แบบไทย
       const dateKey = orderDate.toLocaleString('th-TH', {
         timeZone: 'Asia/Bangkok',
@@ -80,14 +95,14 @@ export const getOrderReport = async (req: Request, res: Response) => {
         month: 'long',
         day: 'numeric'
       });
-      
+
       // Format เวลา
       const timeStr = orderDate.toLocaleString('th-TH', {
         timeZone: 'Asia/Bangkok',
         hour: '2-digit',
         minute: '2-digit'
       });
-      
+
       const fullDateTimeStr = `${dateKey} ${timeStr}`;
 
       if (!acc[dateKey]) {
@@ -99,7 +114,12 @@ export const getOrderReport = async (req: Request, res: Response) => {
             totalShippingCost: 0,
             totalAmount: 0,
             totalNetAmount: 0,
-            totalPaymentAmount: 0
+            totalPaymentAmount: 0,
+            // เพิ่มฟิลด์ใหม่
+            totalCost: 0,
+            totalGrossProfit: 0,
+            totalNetProfit: 0,
+            totalWarehouseFees: 0
           }
         };
       }
@@ -116,6 +136,14 @@ export const getOrderReport = async (req: Request, res: Response) => {
         payment: {
           amount: order.payment.amount || 0
         }
+        ,
+        // เพิ่มข้อมูลกำไร/ขาดทุน
+        profitInfo: order.profitSummary ? {
+          totalCost: order.profitSummary.totalCost,
+          grossProfit: order.profitSummary.grossProfit,
+          netProfit: order.profitSummary.netProfit
+        } : undefined,
+        warehouseFees: order.warehouseFees
       });
 
       // อัพเดทสรุปรายวัน
@@ -124,7 +152,11 @@ export const getOrderReport = async (req: Request, res: Response) => {
       acc[dateKey].summary.totalAmount += order.totalAmount;
       acc[dateKey].summary.totalNetAmount += order.netTotal;
       acc[dateKey].summary.totalPaymentAmount += (order.payment.amount || 0);
-
+      // เพิ่มการคำนวณสรุปกำไร/ขาดทุน
+      acc[dateKey].summary.totalCost += order.profitSummary?.totalCost || 0;
+      acc[dateKey].summary.totalGrossProfit += order.profitSummary?.grossProfit || 0;
+      acc[dateKey].summary.totalNetProfit += order.profitSummary?.netProfit || 0;
+      acc[dateKey].summary.totalWarehouseFees += order.warehouseFees?.totalFees || 0;
       return acc;
     }, {});
 
@@ -141,7 +173,12 @@ export const getOrderReport = async (req: Request, res: Response) => {
       totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
       totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
       totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
-      totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0)
+      totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0),
+      // เพิ่มการคำนวณสรุปกำไร/ขาดทุนรวม
+      totalCost: orders.reduce((sum, order) => sum + (order.profitSummary?.totalCost || 0), 0),
+      totalGrossProfit: orders.reduce((sum, order) => sum + (order.profitSummary?.grossProfit || 0), 0),
+      totalNetProfit: orders.reduce((sum, order) => sum + (order.profitSummary?.netProfit || 0), 0),
+      totalWarehouseFees: orders.reduce((sum, order) => sum + (order.warehouseFees?.totalFees || 0), 0)
     };
 
     const response: ReportResponse = {
