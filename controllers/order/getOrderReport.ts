@@ -4,24 +4,23 @@ import Order from '../../models/orderModel';
 import { startOfDay, endOfDay, parseISO } from 'date-fns';
 import { format } from 'date-fns-tz';
 
-
 interface DailySummary {
   totalOrders: number;
   totalShippingCost: number;
-  totalAmount: number;
+  totalAmount: number;        // จะใช้ netTotal แทน
   totalNetAmount: number;
   totalPaymentAmount: number;
-  totalCost: number;          // เพิ่ม
-  totalGrossProfit: number;   // เพิ่ม
-  totalNetProfit: number;     // เพิ่ม
-  totalWarehouseFees: number; // เพิ่ม
+  totalCost: number;
+  totalGrossProfit: number;
+  totalNetProfit: number;
+  totalWarehouseFees: number;
 }
 
 interface OrderDetail {
   orderId: string;
   customerName: string;
   shippingCost: number;
-  totalAmount: number;
+  totalAmount: number;        // จะใช้ netTotal แทน
   netTotal: number;
   status: string;
   createdAt: string;
@@ -29,9 +28,9 @@ interface OrderDetail {
     amount: number;
   };
   profitInfo?: {
-    totalCost: number;    
-    grossProfit: number;  
-    netProfit: number;    
+    totalCost: number;
+    grossProfit: number;
+    netProfit: number;
   };
   warehouseFees?: {
     shippingCost: number;
@@ -55,7 +54,6 @@ interface ReportResponse {
   };
 }
 
-// controllers/orders/getOrderReport.ts
 export const getOrderReport = async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = req.query;
@@ -111,9 +109,13 @@ export const getOrderReport = async (req: Request, res: Response) => {
           summary: {
             totalOrders: 0,
             totalShippingCost: 0,
-            totalAmount: 0,
+            totalAmount: 0,        // จะใช้ netTotal แทน
             totalNetAmount: 0,
-            totalPaymentAmount: 0
+            totalPaymentAmount: 0,
+            totalCost: 0,
+            totalGrossProfit: 0,
+            totalNetProfit: 0,
+            totalWarehouseFees: 0
           }
         };
       }
@@ -123,14 +125,13 @@ export const getOrderReport = async (req: Request, res: Response) => {
         orderId: order.orderId,
         customerName: order.shippingInfo.cusName,
         shippingCost: order.shippingCost,
-        totalAmount: order.totalAmount,
+        totalAmount: order.netTotal,  // เปลี่ยนเป็น netTotal
         netTotal: order.netTotal,
         status: order.payment.status,
         createdAt: fullDateTimeStr,
         payment: {
           amount: order.payment.amount || 0
         },
-        // เพิ่มข้อมูลกำไร/ขาดทุน
         profitInfo: order.profitSummary ? {
           totalCost: order.profitSummary.totalCost,
           grossProfit: order.profitSummary.grossProfit,
@@ -140,16 +141,15 @@ export const getOrderReport = async (req: Request, res: Response) => {
       });
 
       // อัพเดทสรุปรายวัน
-acc[dateKey].summary.totalOrders += 1;
-acc[dateKey].summary.totalShippingCost += order.shippingCost;
-acc[dateKey].summary.totalAmount += order.totalAmount;
-acc[dateKey].summary.totalNetAmount += order.netTotal;
-acc[dateKey].summary.totalPaymentAmount += (order.payment.amount || 0);
-// เพิ่มการคำนวณสรุปกำไร/ขาดทุน
-acc[dateKey].summary.totalCost += order.profitSummary?.totalCost || 0;
-acc[dateKey].summary.totalGrossProfit += order.profitSummary?.grossProfit || 0;
-acc[dateKey].summary.totalNetProfit += order.profitSummary?.netProfit || 0;
-acc[dateKey].summary.totalWarehouseFees += order.warehouseFees?.totalFees || 0;
+      acc[dateKey].summary.totalOrders += 1;
+      acc[dateKey].summary.totalShippingCost += order.shippingCost;
+      acc[dateKey].summary.totalAmount += order.netTotal;     // เปลี่ยนเป็น netTotal
+      acc[dateKey].summary.totalNetAmount += order.netTotal;
+      acc[dateKey].summary.totalPaymentAmount += (order.payment.amount || 0);
+      acc[dateKey].summary.totalCost += order.profitSummary?.totalCost || 0;
+      acc[dateKey].summary.totalGrossProfit += order.profitSummary?.grossProfit || 0;
+      acc[dateKey].summary.totalNetProfit += order.profitSummary?.netProfit || 0;
+      acc[dateKey].summary.totalWarehouseFees += order.warehouseFees?.totalFees || 0;
 
       return acc;
     }, {});
@@ -165,10 +165,9 @@ acc[dateKey].summary.totalWarehouseFees += order.warehouseFees?.totalFees || 0;
     const overallSummary = {
       totalOrders: orders.length,
       totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
-      totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
+      totalAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),     // เปลี่ยนเป็น netTotal
       totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
       totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0),
-      // เพิ่มการคำนวณสรุปกำไร/ขาดทุนรวม
       totalCost: orders.reduce((sum, order) => sum + (order.profitSummary?.totalCost || 0), 0),
       totalGrossProfit: orders.reduce((sum, order) => sum + (order.profitSummary?.grossProfit || 0), 0),
       totalNetProfit: orders.reduce((sum, order) => sum + (order.profitSummary?.netProfit || 0), 0),
