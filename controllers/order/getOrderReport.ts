@@ -1,53 +1,85 @@
-// controllers/orders/getOrderReport.ts
-import { Request, Response } from 'express';
-import Order from '../../models/orderModel';
-import { startOfDay, endOfDay, parseISO } from 'date-fns';
-import { format } from 'date-fns-tz';
+// controllers/orders/types.ts
+import type { ObjectId } from "mongodb";
 
+// Base types from orderTypes.ts
+export interface OrderProduct {
+  _id?: ObjectId;
+  sku: string;
+  name: string;
+  price: number;
+  cost: number;
+  qty: number;
+  total: number;
+  totalCost: number;
+  profit: number;
+}
 
-interface DailySummary {
+export interface ShippingInfo {
+  _id: string;
+  cusName: string;
+  cusTel: string;
+  addressNo: string;
+  district: string;
+  amphoe: string;
+  province: string;
+  zipcode: string;
+  location?: string;
+  isDefault: boolean;
+  trackingNo?: string;
+  shippingChannel?: string;
+  trackingUpdateAt?: Date;
+}
+
+export interface ProfitSummary {
+  totalCost: number;    // ต้นทุนรวม
+  grossProfit: number;  // กำไรขั้นต้น
+  netProfit: number;    // กำไรสุทธิ
+  updatedAt?: Date;
+}
+
+export interface WarehouseFees {
+  shippingCost: number;
+  serviceFee: number;
+  totalFees: number;
+}
+
+// Report specific types
+export interface DailySummary {
   totalOrders: number;
   totalShippingCost: number;
   totalAmount: number;
   totalNetAmount: number;
   totalPaymentAmount: number;
-
-  totalCost: number;         // ต้นทุนรวม
-  totalGrossProfit: number;  // กำไรขั้นต้นรวม
-  totalNetProfit: number;    // กำไรสุทธิรวม
-  totalWarehouseFees: number; // ค่าใช้จ่ายคลังรวม
+  totalCost: number;         
+  totalGrossProfit: number;  
+  totalNetProfit: number;    
+  totalWarehouseFees: number;
 }
 
-interface OrderDetail {
+export interface ReportOrder {
   orderId: string;
-  customerName: string;
+  shippingInfo: ShippingInfo;
+  listProducts: OrderProduct[];
   shippingCost: number;
   totalAmount: number;
   netTotal: number;
   status: string;
-  createdAt: string;
+  createdAt: string | Date;
   payment: {
     amount: number;
+    status: string;
   };
-  profitInfo?: {
-    totalCost: number;    // ต้นทุนรวม
-    grossProfit: number;  // กำไรขั้นต้น
-    netProfit: number;    // กำไรสุทธิ
-  };
-  warehouseFees?: {
-    shippingCost: number;
-    serviceFee: number;
-    totalFees: number;
-  };
+  profitSummary?: ProfitSummary;
+  warehouseFees?: WarehouseFees;
 }
 
-interface DailyReport {
+export interface DailyReport {
   date: string;
-  orders: OrderDetail[];
+  orders: ReportOrder[];
   summary: DailySummary;
 }
 
-interface ReportResponse {
+export interface ReportResponse {
   dailyReports: DailyReport[];
   summary: DailySummary;
   dateRange: {
@@ -57,6 +89,11 @@ interface ReportResponse {
 }
 
 // controllers/orders/getOrderReport.ts
+import { Request, Response } from 'express';
+import Order from '../../models/orderModel';
+import { format } from 'date-fns-tz';
+
+
 export const getOrderReport = async (req: Request, res: Response) => {
   try {
     const { startDate, endDate } = req.query;
@@ -65,11 +102,9 @@ export const getOrderReport = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Start date and end date are required' });
     }
 
-    // แปลงวันที่เป็น UTC ตามที่เก็บใน MongoDB
     const parsedStartDate = new Date(startDate as string);
     const parsedEndDate = new Date(endDate as string);
 
-    // Query MongoDB ด้วยเวลา UTC
     const orders = await Order.find({
       createdAt: {
         $gte: parsedStartDate,
@@ -78,17 +113,9 @@ export const getOrderReport = async (req: Request, res: Response) => {
       'payment.status': 'success'
     }).sort({ createdAt: 1 });
 
-    console.log('Query UTC range:', {
-      start: parsedStartDate.toISOString(),
-      end: parsedEndDate.toISOString()
-    });
-
     // จัดกลุ่มตามวันที่
-    const ordersByDate = orders.reduce<{ [key: string]: any }>((acc, order) => {
-      // แปลง UTC เป็นเวลาไทยสำหรับการแสดงผล
+    const ordersByDate = orders.reduce<Record<string, DailyReport>>((acc, order) => {
       const orderDate = new Date(order.createdAt);
-
-      // Format วันที่แบบไทย
       const dateKey = orderDate.toLocaleString('th-TH', {
         timeZone: 'Asia/Bangkok',
         year: 'numeric',
@@ -96,7 +123,6 @@ export const getOrderReport = async (req: Request, res: Response) => {
         day: 'numeric'
       });
 
-      // Format เวลา
       const timeStr = orderDate.toLocaleString('th-TH', {
         timeZone: 'Asia/Bangkok',
         hour: '2-digit',
@@ -115,7 +141,6 @@ export const getOrderReport = async (req: Request, res: Response) => {
             totalAmount: 0,
             totalNetAmount: 0,
             totalPaymentAmount: 0,
-            // เพิ่มฟิลด์ใหม่
             totalCost: 0,
             totalGrossProfit: 0,
             totalNetProfit: 0,
@@ -124,57 +149,59 @@ export const getOrderReport = async (req: Request, res: Response) => {
         };
       }
 
-      // เพิ่มข้อมูลออเดอร์
-      acc[dateKey].orders.push({
+      // Transform order to ReportOrder type
+      const reportOrder: ReportOrder = {
         orderId: order.orderId,
-        customerName: order.shippingInfo.cusName,
+        shippingInfo: order.shippingInfo,
+        listProducts: order.listProducts.map(product => ({
+          ...product,
+          cost: product.cost || 0,
+          totalCost: product.totalCost || 0,
+          profit: product.profit || 0
+        })),
         shippingCost: order.shippingCost,
         totalAmount: order.totalAmount,
         netTotal: order.netTotal,
         status: order.payment.status,
         createdAt: fullDateTimeStr,
         payment: {
-          amount: order.payment.amount || 0
-        }
-        ,
-        // เพิ่มข้อมูลกำไร/ขาดทุน
-        profitInfo: order.profitSummary ? {
-          totalCost: order.profitSummary.totalCost,
-          grossProfit: order.profitSummary.grossProfit,
-          netProfit: order.profitSummary.netProfit
-        } : undefined,
+          amount: order.payment.amount || 0,
+          status: order.payment.status
+        },
+        profitSummary: order.profitSummary,
         warehouseFees: order.warehouseFees
-      });
+      };
 
-      // อัพเดทสรุปรายวัน
+      acc[dateKey].orders.push(reportOrder);
+
+      // Update daily summary
       acc[dateKey].summary.totalOrders += 1;
       acc[dateKey].summary.totalShippingCost += order.shippingCost;
       acc[dateKey].summary.totalAmount += order.totalAmount;
       acc[dateKey].summary.totalNetAmount += order.netTotal;
       acc[dateKey].summary.totalPaymentAmount += (order.payment.amount || 0);
-      // เพิ่มการคำนวณสรุปกำไร/ขาดทุน
       acc[dateKey].summary.totalCost += order.profitSummary?.totalCost || 0;
       acc[dateKey].summary.totalGrossProfit += order.profitSummary?.grossProfit || 0;
       acc[dateKey].summary.totalNetProfit += order.profitSummary?.netProfit || 0;
       acc[dateKey].summary.totalWarehouseFees += order.warehouseFees?.totalFees || 0;
+
       return acc;
     }, {});
 
-    // แปลง object เป็น array และจัดเรียงตามวันที่
-    const dailyReports = Object.values(ordersByDate).sort((a: any, b: any) => {
-      const dateA = new Date(a.orders[0].createdAt.replace(/[^\d\s:]/g, ''));
-      const dateB = new Date(b.orders[0].createdAt.replace(/[^\d\s:]/g, ''));
+    // Sort daily reports
+    const dailyReports = Object.values(ordersByDate).sort((a, b) => {
+      const dateA = new Date(a.orders[0].createdAt);
+      const dateB = new Date(b.orders[0].createdAt);
       return dateA.getTime() - dateB.getTime();
     });
 
-    // คำนวณสรุปรวม
-    const overallSummary = {
+    // Calculate overall summary
+    const overallSummary: DailySummary = {
       totalOrders: orders.length,
       totalShippingCost: orders.reduce((sum, order) => sum + order.shippingCost, 0),
       totalAmount: orders.reduce((sum, order) => sum + order.totalAmount, 0),
       totalNetAmount: orders.reduce((sum, order) => sum + order.netTotal, 0),
       totalPaymentAmount: orders.reduce((sum, order) => sum + (order.payment.amount || 0), 0),
-      // เพิ่มการคำนวณสรุปกำไร/ขาดทุนรวม
       totalCost: orders.reduce((sum, order) => sum + (order.profitSummary?.totalCost || 0), 0),
       totalGrossProfit: orders.reduce((sum, order) => sum + (order.profitSummary?.grossProfit || 0), 0),
       totalNetProfit: orders.reduce((sum, order) => sum + (order.profitSummary?.netProfit || 0), 0),
@@ -182,7 +209,7 @@ export const getOrderReport = async (req: Request, res: Response) => {
     };
 
     const response: ReportResponse = {
-      dailyReports: dailyReports as DailyReport[],
+      dailyReports,
       summary: overallSummary,
       dateRange: {
         start: parsedStartDate,
