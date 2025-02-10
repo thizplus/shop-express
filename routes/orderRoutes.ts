@@ -6,6 +6,8 @@ import { getOrderReport } from '../controllers/order/getOrderReport';
 import { updateGrabPayment } from '../controllers/order/updateGrabPayment';
 import { syncOrderFromWarehouse } from '../controllers/order/syncOrderController';
 import { updateOrderCost } from '../controllers/order/updateCostController';
+import { getOrderDetail } from '../controllers/order/getOrderDetail';
+import { getOrderStats } from '../controllers/order/getOrderStats';
 
 const router = express.Router();
 
@@ -36,10 +38,14 @@ router.get('/admin', getAdminOrders);  // สำหรับดึงข้อ�
 router.get('/search', searchOrders);   // สำหรับค้นหา orders
 
 router.get('/report', getOrderReport);  // สำหรับดึงข้อมูลทั้งหมดแบบ pagination
+router.get('/stats', getOrderStats);    // สำหรับดึงข้อมูลสถิติการขาย
 
 // สามารถเพิ่ม routes อื่นๆ ตามความต้องการ
 
 router.get('/pending', getPendingOrders);  // สำหรับดึงรายการทั้งหมดโดยส่ง query params
 router.get('/pending/latest/:userId/:typeId', getLatestPendingOrder);  // แก้ route ให้รับ typeId ด้วย
+
+
+router.get('/:orderId', getOrderDetail);
 
 export default router;

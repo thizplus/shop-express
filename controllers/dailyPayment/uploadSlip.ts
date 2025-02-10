@@ -23,29 +23,47 @@ const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024, // 5MB
   },
   fileFilter
 });
 
 export const uploadSlip = async (req: Request, res: Response) => {
+  // กำหนด allowed file types
+  const allowedMimeTypes = [
+    'image/jpeg',
+    'image/png',
+    'image/jpg',
+    'application/octet-stream'  // สำหรับไฟล์จากมือถือ
+  ];
+
+  // ฟังก์ชันตรวจสอบนามสกุลไฟล์
+  const isValidFileExtension = (filename: string): boolean => {
+    const allowedExtensions = ['.jpg', '.jpeg', '.png'];
+    const ext = filename.toLowerCase().slice(((filename.lastIndexOf(".") - 1) >>> 0) + 2);
+    return allowedExtensions.includes(`.${ext}`);
+  };
+
   upload.single('file')(req, res, async function (err) {
+    // จัดการ error จาก multer
     if (err instanceof multer.MulterError) {
+      console.error('Multer error:', err);
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ 
           status: 'error', 
-          message: 'File size exceeds the limit of 5MB' 
+          message: 'ขนาดไฟล์เกิน 5MB กรุณาลองใหม่อีกครั้ง' 
         });
       }
       return res.status(400).json({ 
         status: 'error', 
-        message: 'Error uploading file', 
+        message: 'เกิดข้อผิดพลาดในการอัพโหลดไฟล์', 
         error: err.message 
       });
     } else if (err) {
+      console.error('Unknown upload error:', err);
       return res.status(400).json({ 
         status: 'error', 
-        message: 'Unknown error', 
+        message: 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ', 
         error: err instanceof Error ? err.message : 'An unknown error occurred' 
       });
     }
@@ -53,14 +71,35 @@ export const uploadSlip = async (req: Request, res: Response) => {
     if (!req.file) {
       return res.status(400).json({ 
         status: 'error', 
-        message: 'No file uploaded' 
+        message: 'กรุณาเลือกไฟล์ที่ต้องการอัพโหลด' 
       });
     }
 
     try {
-      // แก้ไข mimetype สำหรับไฟล์จากมือถือ
+      // ตรวจสอบนามสกุลไฟล์
+      if (!isValidFileExtension(req.file.originalname)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'รองรับเฉพาะไฟล์ภาพนามสกุล .jpg, .jpeg, หรือ .png เท่านั้น'
+        });
+      }
+
+      // จัดการ mimetype สำหรับไฟล์จากมือถือ
       if (req.file.mimetype === 'application/octet-stream') {
-        req.file.mimetype = 'image/jpeg';
+        const fileExt = req.file.originalname.split('.').pop()?.toLowerCase();
+        if (fileExt === 'jpg' || fileExt === 'jpeg') {
+          req.file.mimetype = 'image/jpeg';
+        } else if (fileExt === 'png') {
+          req.file.mimetype = 'image/png';
+        }
+      }
+
+      // ตรวจสอบ mimetype
+      if (!allowedMimeTypes.includes(req.file.mimetype)) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'รูปแบบไฟล์ไม่ถูกต้อง กรุณาอัพโหลดไฟล์ภาพเท่านั้น'
+        });
       }
 
       console.log('Processing upload:', {
@@ -71,21 +110,22 @@ export const uploadSlip = async (req: Request, res: Response) => {
 
       const downloadURL = await uploadImageToSpaces(req.file, 'daily-payment-slips');
       
-      if (downloadURL) {
-        return res.status(200).json({ 
-          status: 'success',
-          data: {
-            url: downloadURL
-          }
-        });
-      } else {
-        throw new Error('Failed to upload file');
+      if (!downloadURL) {
+        throw new Error('ไม่สามารถอัพโหลดไฟล์ได้ กรุณาลองใหม่อีกครั้ง');
       }
+
+      return res.status(200).json({ 
+        status: 'success',
+        data: {
+          url: downloadURL
+        }
+      });
+
     } catch (error) {
       console.error('Error in uploadSlip:', error);
       return res.status(500).json({ 
         status: 'error',
-        message: error instanceof Error ? error.message : 'An unknown error occurred'
+        message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ กรุณาลองใหม่อีกครั้ง'
       });
     }
   });
