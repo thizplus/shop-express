@@ -35,6 +35,7 @@ import warehouseRoutes from './routes/warehouseRoutes';
 import dailyPaymentRoutes from './routes/dailyPaymentRoutes';
 
 import migrationRoutes from './routes/migrationRoutes';
+import qrRoutes from './routes/qrRoutes';
 
 dotenv.config();
 process.env.TZ = 'Asia/Bangkok';
@@ -101,6 +102,7 @@ app.use('/api/slipOK', slipOKRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/points', pointRoutes);
+app.use('/api/qr', qrRoutes);
 
 app.use('/api/daily-payment', dailyPaymentRoutes);
 
