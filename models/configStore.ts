@@ -75,6 +75,17 @@ export interface IDisplayConfig {
   shopSlogan?: string; // Allow undefined
 }
 
+// เพิ่ม interface สำหรับอักษรวิ่ง
+export interface ITickerMessage {
+  id: string;
+  message: string;
+  color?: string;
+  isActive: boolean;
+  priceId?: string; // null หรือไม่มีคือเป็นของร้านหลัก
+}
+
+
+
 export interface IConfig {
   lineLogin: ILineLogin;
   lineNotification: ILineNotification;
@@ -84,6 +95,7 @@ export interface IConfig {
   saleModel: ISaleModel;
   shippingCost: IShippingCost;
   displayConfig: IDisplayConfig;
+  tickers: ITickerMessage[]; // เพิ่มส่วนนี้
 }
 
 export interface IConfigDocument extends IConfig, Document {
@@ -166,6 +178,15 @@ const displayConfigSchema = new Schema<IDisplayConfig>({
   shopSlogan: { type: String, default: '' },
 }, { _id: false });
 
+
+const tickerMessageSchema = new Schema<ITickerMessage>({
+  id: { type: String, required: true },
+  message: { type: String, required: true },
+  color: { type: String, default: '#ffffff' },
+  isActive: { type: Boolean, default: true },
+  priceId: { type: String }
+}, { _id: false });
+
 const configSchema = new Schema<IConfigDocument>({
   lineLogin: { type: lineLoginSchema, default: () => ({}) },
   lineNotification: { type: lineNotificationSchema, default: () => ({}) },
@@ -175,6 +196,7 @@ const configSchema = new Schema<IConfigDocument>({
   saleModel: { type: saleModelSchema, default: () => ({}) },
   shippingCost: { type: shippingCostSchema, default: () => ({}) },
   displayConfig: { type: displayConfigSchema, default: () => ({}) },
+  tickers: { type: [tickerMessageSchema], default: [] }, // เพิ่มส่วนนี้
 }, { 
   timestamps: true,
   collection: 'tbl_store_config'

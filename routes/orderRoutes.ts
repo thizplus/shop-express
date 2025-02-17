@@ -8,6 +8,7 @@ import { syncOrderFromWarehouse } from '../controllers/order/syncOrderController
 import { updateOrderCost } from '../controllers/order/updateCostController';
 import { getOrderDetail } from '../controllers/order/getOrderDetail';
 import { getOrderStats } from '../controllers/order/getOrderStats';
+import { getCustomerOrderStats } from '../controllers/order/getCustomerOrderStats';
 
 const router = express.Router();
 
@@ -39,6 +40,8 @@ router.get('/search', searchOrders);   // สำหรับค้นหา orde
 
 router.get('/report', getOrderReport);  // สำหรับดึงข้อมูลทั้งหมดแบบ pagination
 router.get('/stats', getOrderStats);    // สำหรับดึงข้อมูลสถิติการขาย
+
+router.get('/customer-stats', getCustomerOrderStats);
 
 // สามารถเพิ่ม routes อื่นๆ ตามความต้องการ
 
