@@ -31,7 +31,7 @@ export const updatePrice = async (req: Request, res: Response) => {
       {
         $set: {
           'listPrice.$.price': price,
-          'listPrice.$.updatedAt': new Date()
+       //   'listPrice.$.updatedAt': new Date()
         }
       },
       {

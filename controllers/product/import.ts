@@ -18,6 +18,8 @@ interface CategoryObj {
     imagepath: string | null;
     categories: CategoryObj[];
     active: boolean;
+    createdAt: Date;  // เปลี่ยนเป็น Date type ตามต้นทาง
+    updatedAt: Date;  // เปลี่ยนเป็น Date type ตามต้นทาง
    }
    
    interface ResponseData {
@@ -56,6 +58,16 @@ interface CategoryObj {
     for (const item of products) {
       const existingProduct = await Product.findOne({ sku: item.sku });
       
+
+      const createdAt = new Date(item.createdAt);
+      const updatedAt = new Date(item.updatedAt);
+
+      console.log('Processing item:', {
+        sku: item.sku,
+        createdAt: createdAt,
+        updatedAt: updatedAt
+      });
+
       // Handle price document
       const existingPrice = await Price.findOne({ sku: item.sku });
       if (!existingPrice) {
@@ -63,8 +75,7 @@ interface CategoryObj {
           priceId: price.priceId,
           priceName: price.priceName,
           price: 0,
-          createdAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: updatedAt,  // กำหนดค่า updatedAt จากข้อมูลคลัง
         }));
    
         await Price.create({
@@ -75,7 +86,10 @@ interface CategoryObj {
       } else {
         await Price.updateOne(
           { sku: item.sku },
-          { $set: { name: item.name } }
+          { $set: { 
+            name: item.name ,
+            'listPrice.$[].updatedAt': updatedAt
+          } }
         );
       }
    
@@ -90,11 +104,19 @@ interface CategoryObj {
               availablestock: item.availablestock,
               imagepath: item.imagepath,
               categories: item.categories,
-              active: item.active
+              active: item.active,
+              updatedAt: updatedAt  // ตรวจสอบว่าค่านี้ถูกส่งมาถูกต้อง
             }
           }
         );
       } else {
+
+        console.log('Creating new product with timestamps:', {
+          sku: item.sku,
+          createdAt: createdAt,
+          updatedAt: updatedAt
+        });
+
         await Product.create({
           id: nextId++,
           name: item.name,
@@ -103,7 +125,9 @@ interface CategoryObj {
           availablestock: item.availablestock,
           imagepath: item.imagepath,
           categories: item.categories,
-          active: item.active
+          active: item.active,
+          createdAt: createdAt,  // กำหนดค่า createdAt จากข้อมูลคลัง
+          updatedAt: updatedAt   // กำหนดค่า updatedAt จากข้อมูลคลัง
         });
       }
     }
@@ -131,8 +155,12 @@ interface CategoryObj {
           `${process.env.STORE_API_URL}/api/products/all-import?page=${page}&limit=${batchSize}`
         );
         
+        
         if (!response.ok) throw new Error('Failed to fetch products');
         const data = await response.json() as ResponseData;
+
+         // เพิ่ม log ตรวจสอบข้อมูลที่ได้รับ
+      console.log('Imported data sample:', data.items[0]);
    
         // Create categories for this batch
         await createCategoriesIfNotExist(data.items);

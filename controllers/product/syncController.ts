@@ -103,7 +103,7 @@ export const syncProductFromWarehouse = async (req: Request<{}, {}, SyncRequest>
           priceName: price.priceName,
           price: 0,
           createdAt: new Date(),
-          updatedAt: new Date()
+         // updatedAt: new Date()
         }));
         
         await Price.create({

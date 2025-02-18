@@ -30,9 +30,10 @@ const productSchema = new Schema<IProduct>({
   availablestock: { type: Number, required: true },
   imagepath: { type: String, default: null },
   categories: [categorySchema], // ใช้ categorySchema แทน
-  active: { type: Boolean, default: true }
+  active: { type: Boolean, default: true },
+  createdAt: { type: Date },
+  updatedAt: { type: Date }
 }, { 
-  timestamps: true,
   collection: 'tbl_products'
 });
 

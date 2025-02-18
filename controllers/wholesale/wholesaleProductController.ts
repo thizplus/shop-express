@@ -115,80 +115,99 @@ export const setupWholesaleProductSocket = (io: SocketIOServer) => {
       
       try {
         const skip = (page - 1) * limit;
- 
-        // Get active categories with new schema
+    
         const activeCategories = await Category.find({ active: true }).select('catId').lean();
         const activeCategoryIds = activeCategories.map(cat => cat.catId);
-      //  console.log('Active categories:', activeCategoryIds);
- 
-        // Get valid SKUs first
-        const validPrices = await Price.find({
-          'listPrice': {
-            $elemMatch: {
-              'priceId': clientPriceId,
-              'price': { $gt: 0 }
+    
+        const products = await Price.aggregate([
+          {
+            $match: {
+              'listPrice': {
+                $elemMatch: {
+                  'priceId': clientPriceId,
+                  'price': { $gt: 0 }
+                }
+              }
+            }
+          },
+          { $unwind: "$listPrice" },
+          { 
+            $match: { 
+              "listPrice.priceId": clientPriceId,
+              "listPrice.price": { $gt: 0 }
+            }
+          },
+          {
+            $group: {
+              _id: "$sku",
+              name: { $first: "$name" },
+              sku: { $first: "$sku" },
+              price: { $first: "$listPrice.price" }
+            }
+          },
+          {
+            $lookup: {
+              from: 'tbl_products',
+              localField: 'sku',
+              foreignField: 'sku',
+              as: 'productData'
+            }
+          },
+          { 
+            $unwind: {
+              path: '$productData',
+              preserveNullAndEmptyArrays: true
+            }
+          },
+          {
+            $match: {
+              'productData.categories.catId': { $in: activeCategoryIds },
+              ...(showAvailableOnly && {
+                'productData.availablestock': { $gt: 0 },
+                'productData.active': true
+              }),
+              ...(searchTerm && {
+                $or: [
+                  { 'productData.name': { $regex: searchTerm, $options: 'i' } },
+                  { 'productData.sku': { $regex: searchTerm, $options: 'i' } }
+                ]
+              }),
+              ...(selectedCategory && { 'productData.categories.catId': selectedCategory })
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              name: "$productData.name",
+              sku: 1,
+              stock: "$productData.stock",
+              availablestock: "$productData.availablestock",
+              imagepath: "$productData.imagepath",
+              categories: "$productData.categories",
+              active: "$productData.active",
+              price: 1,
+              updatedAt: "$productData.updatedAt"
+            }
+          },
+          { 
+            $sort: { 
+              active: -1,
+              updatedAt: -1,
+              sku: 1
             }
           }
-        }).select('sku').lean();
- 
-        const validSkus = validPrices.map(p => p.sku);
-      //  console.log('Valid SKUs:', validSkus);
-        
-        const query: any = { 
-          'categories.catId': { $in: activeCategoryIds },
-          sku: { $in: validSkus }
-        };
- 
-        if (showAvailableOnly) {
-          query.availablestock = { $gt: 0 };
-          query.active = true;
-        }
+        ]);
     
-        if (searchTerm) {
-          query.$or = [
-            { name: { $regex: searchTerm, $options: 'i' } },
-            { sku: { $regex: searchTerm, $options: 'i' } }
-          ];
-        }
-    
-        if (selectedCategory) {
-          query['categories.catId'] = selectedCategory;
-        }
- 
-       // console.log('Product query:', JSON.stringify(query, null, 2));
- 
-        const totalItems = await Product.countDocuments(query);
-        const items = await Product.find(query)
-          .skip(skip)
-          .limit(limit)
-          .lean();
- 
-        // console.log('Found products:', items.length);
- 
-        const skus = items.map(item => item.sku);
-        const prices = await Price.find({ 
-          sku: { $in: skus },
-          'listPrice': {
-            $elemMatch: {
-              'priceId': clientPriceId,
-              'price': { $gt: 0 }
-            }
-          }
-        }).lean();
- 
-        const itemsWithPrices = items.map(item => {
-          const priceData = prices.find(p => p.sku === item.sku);
-          const selectedPrice = priceData?.listPrice?.find(p => p.priceId === clientPriceId);
-          return { ...item, price: selectedPrice?.price || 0 };
-        });
+        const totalItems = products.length;
+        const paginatedResult = products.slice(skip, skip + limit);
     
         socket.emit('wholesaleProductsList', {
-          items: itemsWithPrices,
-          currentPage: page,  
+          items: paginatedResult,
+          currentPage: page,
           totalPages: Math.ceil(totalItems / limit),
           totalItems
         });
- 
+    
       } catch (error) {
         console.error('Error fetching products:', error);
         socket.emit('error', { message: 'Error fetching products' });

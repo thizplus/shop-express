@@ -38,7 +38,7 @@ export const bulkUpdateProduct = async (req: Request, res: Response) => {
         { 
           $set: { 
             categories: categoryData,
-            updatedAt: now
+            //updatedAt: now
           } 
         },
         { session }
@@ -57,8 +57,8 @@ export const bulkUpdateProduct = async (req: Request, res: Response) => {
           update: { 
             $set: { 
               'listPrice.$.price': newPrice,
-              'listPrice.$.updatedAt': now,
-              updatedAt: now  // อัพเดท updatedAt ของ document หลัก
+             // 'listPrice.$.updatedAt': now,
+              //updatedAt: now  // อัพเดท updatedAt ของ document หลัก
             }
           }
         }

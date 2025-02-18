@@ -65,6 +65,7 @@ export const getProducts = async (req: Request, res: Response) => {
       { 
         $sort: {
           active: -1,
+          updatedAt: -1,
           sku: 1
         }
       },

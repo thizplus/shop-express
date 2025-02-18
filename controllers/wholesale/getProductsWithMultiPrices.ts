@@ -66,56 +66,83 @@ export const setupMultiPriceProductSocket = (io: SocketIOServer) => {
        };
 
        const products = await Price.aggregate<ProductWithPrices>([
-         {
-           $lookup: {
-             from: 'tbl_store_price_list',
-             localField: 'listPrice.priceId',
-             foreignField: 'priceId',
-             as: 'priceLists'
-           }
-         },
-         { $unwind: "$listPrice" },
-         { 
-           $match: { 
-             "listPrice.priceId": { $in: clientPriceIds },
-             "listPrice.price": { $gt: 0 }
-           }
-         },
-         { 
-           $group: {
-             _id: "$sku",
-             name: { $first: "$name" },
-             prices: { 
-               $push: {
-                 priceId: "$listPrice.priceId",
-                 priceName: "$listPrice.priceName",
-                 price: "$listPrice.price",
-                 updatedAt: "$listPrice.updatedAt"
-               }
-             },
-             validPriceCount: { $sum: 1 }
-           }
-         },
-         {
-           $match: {
-             validPriceCount: { $eq: clientPriceIds.length }
-           }
-         },
-         {
-           $project: {
-             _id: 0,
-             sku: "$_id",
-             name: 1,
-             prices: 1
-           }
-         },
-         { $sort: { sku: 1 } }
-       ]);
+        {
+          $lookup: {
+            from: 'tbl_store_price_list',
+            localField: 'listPrice.priceId',
+            foreignField: 'priceId',
+            as: 'priceLists'
+          }
+        },
+        { $unwind: "$listPrice" },
+        { 
+          $match: { 
+            "listPrice.priceId": { $in: clientPriceIds },
+            "listPrice.price": { $gt: 0 }
+          }
+        },
+        { 
+          $group: {
+            _id: "$sku",
+            name: { $first: "$name" },
+            sku: { $first: "$sku" }, // เพิ่มฟิลด์ sku เพื่อใช้ใน lookup
+            prices: { 
+              $push: {
+                priceId: "$listPrice.priceId",
+                priceName: "$listPrice.priceName",
+                price: "$listPrice.price",
+                updatedAt: "$listPrice.updatedAt"
+              }
+            },
+            validPriceCount: { $sum: 1 }
+          }
+        },
+        {
+          $match: {
+            validPriceCount: { $eq: clientPriceIds.length }
+          }
+        },
+        {
+          $lookup: {
+            from: 'tbl_products',
+            localField: 'sku', // เปลี่ยนจาก _id เป็น sku
+            foreignField: 'sku',
+            as: 'productData'
+          }
+        },
+        { 
+          $unwind: {
+            path: '$productData',
+            preserveNullAndEmptyArrays: true // เพิ่มตัวเลือกนี้เพื่อเก็บข้อมูลแม้ไม่มี match
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            sku: 1,
+            name: 1,
+            prices: 1,
+            active: "$productData.active",
+            updatedAt: "$productData.updatedAt"
+          }
+        },
+        { 
+          $sort: { 
+            active: -1,
+            updatedAt: -1,
+            sku: 1
+          }
+        }
+      ]);
 
-       const productSkus = products.map(p => p.sku);
-       const productDetails = await Product.find({ sku: { $in: productSkus }, ...query })
-         .select('sku stock availablestock categories imagepath')
-         .lean();
+      
+const productSkus = products.map(p => p.sku);
+const productDetails = await Product.find({ 
+  sku: { $in: productSkus }, 
+  ...query 
+})
+.select('sku stock availablestock categories imagepath')
+.lean();
 
        const productMap = new Map(productDetails.map(product => [product.sku, product]));
 
