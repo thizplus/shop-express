@@ -63,7 +63,8 @@ export const verifyProfile = async (req: Request, res: Response) => {
         userType: client.userType,
         idType: client.idType,
         customPrices: client.customPrices || [], // Always include customPrices
-        enableGrabDelivery: client.enableGrabDelivery || false
+        enableGrabDelivery: client.enableGrabDelivery || false,
+        createdAt: client.createdAt // เพิ่มส่วนนี้
       });
 
     } catch (liffError) {
@@ -165,7 +166,8 @@ export const verifyToken = async (req: Request, res: Response) => {
           displayName: client.displayName,
           pictureUrl: client.pictureUrl,
           userType: client.userType,
-          idType: client.idType
+          idType: client.idType,
+          createdAt: client.createdAt  // เพิ่มส่วนนี้
         }
       });
     } catch (liffError) {

@@ -35,6 +35,8 @@ export interface IClient extends Document {
   pinCreatedAt?: Date;         // วันที่สร้าง PIN (optional สำหรับใช้ในกรณีต้องการให้ PIN หมดอายุ)
   pinAttempts?: number;        // จำนวนครั้งที่ใส่ PIN ผิด (optional สำหรับระบบความปลอดภัย)
   pinLastAttempt?: Date;       // เวลาที่ใส่ PIN ครั้งล่าสุด
+  createdAt: Date; // เพิ่มส่วนนี้
+  updatedAt: Date; // เพิ่มส่วนนี้
 }
 
 // Shipping Address Schema
